@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>問診票 — ひかり鍼灸整骨院</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;background:#f5f5f3;color:#1a1a1a;font-size:15px;line-height:1.6}
+.wrap{max-width:740px;margin:0 auto;padding:2rem 1rem 4rem}
+.header{text-align:center;margin-bottom:2rem}
+.header h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.header p{font-size:13px;color:#666}
+
+.email-cfg{background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.5rem}
+.email-cfg p{font-size:13px;font-weight:700;color:#555;margin-bottom:6px}
+.insurance-box{background:#f9f9f7;border:1px solid #e0e0e0;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:13px}
+.insurance-box h3{font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:6px}
+.insurance-box ul{padding-left:1.2rem;color:#555;line-height:1.9}
+.agree-row{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;cursor:pointer}
+.agree-row input{width:16px;height:16px;cursor:pointer;flex-shrink:0}
+.section{background:#fff;border:1px solid #e8e8e6;border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:12px}
+.q-label{font-size:14px;font-weight:700;color:#1a1a1a;margin-bottom:10px;display:flex;gap:8px;align-items:flex-start}
+.q-num{background:#1D9E75;color:#fff;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px}
+.q-sub{font-size:12px;color:#888;font-weight:400}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}
+.chip{font-size:13px;padding:7px 14px;border:1.5px solid #ddd;border-radius:20px;cursor:pointer;color:#333;background:#fff;user-select:none;transition:all .15s}
+.chip:hover{border-color:#1D9E75;color:#1D9E75}
+.chip.active{background:#E1F5EE;border-color:#1D9E75;color:#0F6E56;font-weight:600}
+.radio-grp{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.rbtn{font-size:13px;padding:7px 16px;border:1.5px solid #ddd;border-radius:8px;cursor:pointer;color:#333;background:#fff;user-select:none;transition:all .15s}
+.rbtn:hover{border-color:#1D9E75;color:#1D9E75}
+.rbtn.active{background:#E1F5EE;border-color:#1D9E75;color:#0F6E56;font-weight:600}
+.sub-q{margin-top:14px;padding-top:12px;border-top:1px solid #f0f0f0}
+.sub-label{font-size:13px;color:#666;margin-bottom:7px;font-weight:600}
+.note{font-size:11px;color:#999;margin-top:6px}
+.warn{font-size:11px;color:#b84020;margin-top:6px;font-weight:600}
+input[type=text],input[type=tel],input[type=email],select{width:100%;padding:9px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff;color:#1a1a1a;outline:none;font-family:inherit;transition:border-color .15s}
+input[type=text]:focus,input[type=tel]:focus,input[type=email]:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.12)}
+.field-row{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center;margin-bottom:12px}
+.field-label{font-size:13px;color:#666;text-align:right;font-weight:600}
+.req{color:#c0392b;font-size:11px;margin-left:3px}
+.dob-row{display:flex;gap:6px;align-items:center}
+.dob-row select{flex:1}
+.dob-sep{font-size:13px;color:#666;white-space:nowrap}
+.marriage-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.confirm-btn{width:100%;padding:15px;font-size:16px;font-weight:700;background:#1D9E75;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-top:10px;transition:opacity .15s;letter-spacing:.03em}
+.confirm-btn:hover{opacity:.85}
+.privacy{font-size:11px;color:#999;margin-top:14px;line-height:1.8;text-align:center}
+.overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);justify-content:center;align-items:flex-start;padding:30px 16px;z-index:999;overflow-y:auto}
+.overlay.show{display:flex}
+.modal{background:#fff;border-radius:16px;padding:1.75rem;max-width:640px;width:100%;margin-bottom:30px}
+.modal h2{font-size:17px;font-weight:700;margin-bottom:1rem;padding-bottom:10px;border-bottom:1px solid #eee}
+.ctable{width:100%;font-size:13px;border-collapse:collapse}
+.ctable td{padding:7px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+.ctable td:first-child{color:#666;width:44%;font-weight:600;white-space:nowrap}
+.modal-btns{display:flex;gap:10px;margin-top:1.25rem;flex-wrap:wrap}
+.modal-btns button{flex:1;min-width:110px;padding:12px;border-radius:9px;font-size:14px;cursor:pointer;font-family:inherit;font-weight:700;border:none;transition:opacity .15s}
+.modal-btns button:hover{opacity:.82}
+.modal-btns button:disabled{opacity:.4;cursor:not-allowed}
+.btn-cancel{background:#f0f0ee;color:#333}
+.btn-print{background:#1a6fc4;color:#fff}
+.btn-send{background:#1D9E75;color:#fff}
+.sending-msg{font-size:13px;color:#666;text-align:center;margin-top:10px;display:none}
+@media(max-width:600px){
+  .field-row{grid-template-columns:1fr;gap:4px}
+  .field-label{text-align:left}
+  .cfg-row{grid-template-columns:1fr;gap:4px}
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="formArea">
+  <div class="header">
+    <h1>問診票</h1>
+    <p>ひかり鍼灸整骨院 — ご来院前にご入力をお願いします</p>
+  </div>
+
+  <div class="email-cfg">
+    <p>送信先メールアドレス</p>
+    <input type="email" id="destEmail" placeholder="例: info@clinic.jp">
+  </div>
+
+
+
+  <div class="insurance-box">
+    <h3>健康保険の対象となる場合</h3>
+    <ul><li>急性などの外傷性の打撲・捻挫・挫傷（肉離れなど）・骨折・脱臼</li></ul>
+    <div style="margin-top:10px">
+      <h3>対象とならない場合（全額自費）</h3>
+      <ul>
+        <li>単なる肩こり・筋肉疲労、慰安目的のマッサージ代わり</li>
+        <li>神経痛・リウマチ・五十肩・関節炎・ヘルニアなどからくる痛み</li>
+        <li>慢性病・後遺症・長期症状改善なし・仕事中・通勤中の負傷</li>
+      </ul>
+    </div>
+    <label class="agree-row"><input type="checkbox" id="agreeCheck"> 上記内容に同意する</label>
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">1</span><span>おツライところはどこですか？<br><span class="q-sub">全てチェックを入れてください</span></span></div>
+    <div class="chips" id="q1">
+      <div class="chip" data-val="首">首</div><div class="chip" data-val="肩">肩</div><div class="chip" data-val="肘">肘</div><div class="chip" data-val="手首">手首</div><div class="chip" data-val="腰">腰</div><div class="chip" data-val="股関節">股関節</div><div class="chip" data-val="ひざ">ひざ</div><div class="chip" data-val="足首">足首</div><div class="chip" data-val="腕">腕</div><div class="chip" data-val="背中">背中</div><div class="chip" data-val="おしり">おしり</div><div class="chip" data-val="太もも">太もも</div><div class="chip" data-val="ふくらはぎ">ふくらはぎ</div>
+    </div>
+    <input type="text" placeholder="その他（自由記入）" id="q1other" style="margin-top:10px">
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">2</span><span>いつ頃からですか？<br><span class="q-sub">わからない場合は保険適応できません</span></span></div>
+    <div class="radio-grp" id="q2">
+      <div class="rbtn" data-val="今日" data-group="q2">今日</div><div class="rbtn" data-val="昨日" data-group="q2">昨日</div><div class="rbtn" data-val="一昨日" data-group="q2">一昨日</div><div class="rbtn" data-val="3日前" data-group="q2">3日前</div><div class="rbtn" data-val="4日前" data-group="q2">4日前</div><div class="rbtn" data-val="5日前" data-group="q2">5日前</div><div class="rbtn" data-val="6日前" data-group="q2">6日前</div><div class="rbtn" data-val="7日前" data-group="q2">7日前</div><div class="rbtn" data-val="8日以上前" data-group="q2">8日以上前</div>
+    </div>
+    <p class="warn" id="q2warn" style="display:none">⚠ 8日以上前の場合、保険対応できかねます</p>
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">3</span><span>どのような状況でなりましたか？</span></div>
+    <div class="sub-label">どのような時に？</div>
+    <div class="radio-grp" id="q3a">
+      <div class="rbtn" data-val="私用時（健康保険適用）" data-group="q3a">私用時（健康保険適用）</div>
+      <div class="rbtn" data-val="仕事中・通勤中（労災扱い）" data-group="q3a">仕事中・通勤中（労災）</div>
+    </div>
+    <p class="warn">⚠ 仕事中・通勤中は健康保険適用外です</p>
+    <div class="sub-q">
+      <div class="sub-label">何をしていて？</div>
+      <div class="chips" id="q3b">
+        <div class="chip" data-val="歩行中">歩行中</div><div class="chip" data-val="運動中">運動中</div><div class="chip" data-val="運転中">運転中</div><div class="chip" data-val="起床時">起床時</div><div class="chip" data-val="家事">家事</div><div class="chip" data-val="育児中">育児中</div><div class="chip" data-val="物を持った際">物を持った際</div>
+      </div>
+      <input type="text" placeholder="その他" id="q3bother" style="margin-top:10px">
+    </div>
+    <div class="sub-q">
+      <div class="sub-label">場所（どこで？）</div>
+      <div class="chips" id="q3c">
+        <div class="chip" data-val="自宅">自宅</div><div class="chip" data-val="知人宅">知人宅</div><div class="chip" data-val="道路">道路</div><div class="chip" data-val="階段">階段</div><div class="chip" data-val="施設内">施設内</div><div class="chip" data-val="店舗">店舗</div><div class="chip" data-val="公園">公園</div>
+      </div>
+      <input type="text" placeholder="その他" id="q3cother" style="margin-top:10px">
+    </div>
+    <div class="sub-q">
+      <div class="sub-label">負傷部位がどのようになりましたか？</div>
+      <div class="chips" id="q3d">
+        <div class="chip" data-val="捻挫">関節を捻った（捻挫）</div><div class="chip" data-val="挫傷">筋肉を伸ばした（挫傷）</div><div class="chip" data-val="打撲">打った（打撲）</div><div class="chip" data-val="骨折">折れた（骨折）</div><div class="chip" data-val="脱臼">抜けた（脱臼）</div>
+      </div>
+      <p class="note">※負傷原因がない場合、慢性症状とみなされ保険対象外となります</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">4</span><span>現在、整骨院・鍼灸院・整形外科・病院にかかっていますか？</span></div>
+    <div class="radio-grp" id="q4">
+      <div class="rbtn" data-val="はい" data-group="q4">はい</div><div class="rbtn" data-val="いいえ" data-group="q4">いいえ</div>
+    </div>
+    <div id="q4name" style="display:none;margin-top:10px"><input type="text" placeholder="医療機関名" id="q4nameVal"></div>
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">5</span><span>過去に医療機関で診断された症状はありますか？</span></div>
+    <div class="chips" id="q5">
+      <div class="chip" data-val="椎間板ヘルニア">椎間板ヘルニア</div><div class="chip" data-val="すべり症">すべり症</div><div class="chip" data-val="脊椎分離症">脊椎分離症</div><div class="chip" data-val="脊柱管狭窄症">脊柱管狭窄症</div><div class="chip" data-val="リウマチ">リウマチ</div><div class="chip" data-val="変形性関節症">変形性関節症</div><div class="chip" data-val="五十肩">五十肩</div><div class="chip" data-val="糖尿病">糖尿病</div><div class="chip" data-val="高血圧">高血圧</div><div class="chip" data-val="心疾患">心疾患</div><div class="chip" data-val="がん">がん</div><div class="chip" data-val="肝臓疾患">肝臓疾患</div>
+    </div>
+    <input type="text" placeholder="その他" id="q5other" style="margin-top:10px">
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">6</span><span>女性限定の質問です</span></div>
+    <div class="sub-label">妊娠していますか？</div>
+    <div class="radio-grp" id="q6">
+      <div class="rbtn" data-val="はい" data-group="q6">はい</div><div class="rbtn" data-val="いいえ" data-group="q6">いいえ</div>
+    </div>
+    <div id="q6month" style="display:none;margin-top:10px"><input type="text" placeholder="妊娠 〇ヶ月" id="q6monthVal" style="width:170px"></div>
+    <div class="sub-q">
+      <div class="sub-label">女性特有の症状（該当するものをチェック）</div>
+      <div class="chips" id="q6s">
+        <div class="chip" data-val="骨盤矯正・ウエストを絞りたい">骨盤矯正・ウエスト</div><div class="chip" data-val="産後の骨盤矯正">産後の骨盤矯正</div><div class="chip" data-val="頭痛">頭痛</div><div class="chip" data-val="むくみ">むくみ</div><div class="chip" data-val="冷え性">冷え性</div><div class="chip" data-val="月経不順">月経不順</div><div class="chip" data-val="月経痛">月経痛</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="q-label"><span class="q-num">7</span><span>当院でどのような施術を希望されますか？<br><span class="q-sub">複数回答可</span></span></div>
+    <div class="chips" id="q7">
+      <div class="chip" data-val="健康保険内のみの施術">健康保険内のみの施術</div><div class="chip" data-val="必要ならば実費治療も可">必要ならば実費治療も可</div><div class="chip" data-val="実費治療のみ">実費治療のみ</div><div class="chip" data-val="楽になればどの施術でもいい">楽になればどの施術でもいい</div><div class="chip" data-val="治療効果優先">治療効果優先</div><div class="chip" data-val="姿勢・骨盤矯正">姿勢・骨盤矯正</div><div class="chip" data-val="はり・きゅう治療">はり・きゅう治療</div>
+    </div>
+    <p class="note" style="margin-top:10px">※入れ墨・タトゥーのある方はお受けできません</p>
+  </div>
+
+  <div class="section">
+    <div class="q-label" style="margin-bottom:16px"><span style="font-size:15px;font-weight:700">個人情報のご入力</span></div>
+    <div class="field-row"><span class="field-label">お名前<span class="req">必須</span></span><input type="text" id="pName" placeholder="山田 太郎"></div>
+    <div class="field-row"><span class="field-label">フリガナ</span><input type="text" id="pKana" placeholder="ヤマダ タロウ"></div>
+    <div class="field-row">
+      <span class="field-label">性別</span>
+      <div class="radio-grp" id="qGender" style="margin-top:0">
+        <div class="rbtn" data-val="男性" data-group="gender">男性</div><div class="rbtn" data-val="女性" data-group="gender">女性</div>
+      </div>
+    </div>
+    <div class="field-row">
+      <span class="field-label">生年月日</span>
+      <div class="dob-row">
+        <select id="dobY"><option value="">年</option></select><span class="dob-sep">年</span>
+        <select id="dobM"><option value="">月</option></select><span class="dob-sep">月</span>
+        <select id="dobD"><option value="">日</option></select><span class="dob-sep">日</span>
+      </div>
+    </div>
+    <div class="field-row">
+      <span class="field-label">郵便番号</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="pZip" placeholder="1234567" maxlength="8" style="max-width:160px" oninput="autoFillAddress(this.value)">
+        <span id="zipStatus" style="font-size:12px;color:#1D9E75;min-width:60px"></span>
+      </div>
+    </div>
+    <div class="field-row"><span class="field-label">ご住所<span class="req">必須</span></span><input type="text" id="pAddr" placeholder="郵便番号を入力すると自動入力"></div>
+    <div class="field-row"><span class="field-label">電話番号<span class="req">必須</span></span><input type="tel" id="pTel" placeholder="080-1234-5678"></div>
+    <div class="field-row"><span class="field-label">職業</span><input type="text" id="pJob" placeholder="会社員など"></div>
+    <div class="field-row"><span class="field-label">趣味</span><input type="text" id="pHobby"></div>
+    <div class="field-row">
+      <span class="field-label">結婚</span>
+      <div class="marriage-row">
+        <div class="radio-grp" id="qMarriage" style="margin-top:0">
+          <div class="rbtn" data-val="未婚" data-group="marriage">未婚</div><div class="rbtn" data-val="既婚" data-group="marriage">既婚</div>
+        </div>
+        <span style="font-size:13px;color:#666">子供</span>
+        <input type="text" id="pKids" placeholder="0" style="width:60px">
+        <span style="font-size:13px;color:#666">人</span>
+      </div>
+    </div>
+    <div class="field-row">
+      <span class="field-label">来院のきっかけ</span>
+      <div>
+        <div class="radio-grp" id="qIntro" style="margin-top:0">
+          <div class="rbtn" data-val="紹介" data-group="intro">紹介</div><div class="rbtn" data-val="チラシ" data-group="intro">チラシ</div><div class="rbtn" data-val="インターネット" data-group="intro">ネット</div><div class="rbtn" data-val="近所" data-group="intro">近所</div><div class="rbtn" data-val="その他" data-group="intro">その他</div>
+        </div>
+        <input type="text" placeholder="紹介者名・その他詳細" id="introDetail" style="margin-top:10px">
+      </div>
+    </div>
+  </div>
+
+  <button class="confirm-btn" id="confirmBtn">印刷プレビュー →</button>
+  <button class="confirm-btn" id="sendMailBtn" style="margin-top:10px;background:#1a6fc4" onclick="(function(){
+    if(!document.getElementById('agreeCheck').checked){alert('同意チェックをお願いします');return;}
+    if(!document.getElementById('pName').value.trim()){alert('お名前を入力してください');return;}
+    if(!document.getElementById('pTel').value.trim()){alert('電話番号を入力してください');return;}
+    sendEmail(buildData());
+  })()">メール送信</button>
+  <p class="privacy">個人情報は当院の患者様データとして厳重に管理し、患者様の承諾なしに第三者への開示は行いません。</p>
+</div>
+
+
+<script>
+(function(){
+  /* DOB */
+  var dobY=document.getElementById('dobY'),dobM=document.getElementById('dobM'),dobD=document.getElementById('dobD');
+  for(var y=2026;y>=1930;y--){dobY.innerHTML+=('<option value="'+y+'">'+y+'年</option>');}
+  for(var m=1;m<=12;m++){dobM.innerHTML+=('<option value="'+m+'">'+m+'月</option>');}
+  for(var d=1;d<=31;d++){dobD.innerHTML+=('<option value="'+d+'">'+d+'日</option>');}
+
+  /* チップ複数選択 */
+  ['q1','q3b','q3c','q3d','q5','q6s','q7'].forEach(function(id){
+    var g=document.getElementById(id);
+    if(g) g.addEventListener('click',function(e){
+      var c=e.target.closest('.chip');
+      if(c) c.classList.toggle('active');
+    });
+  });
+
+  /* ラジオ単一選択 */
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('.rbtn');
+    if(!btn) return;
+    var group=btn.getAttribute('data-group');
+    if(!group) return;
+    document.querySelectorAll('.rbtn[data-group="'+group+'"]').forEach(function(b){b.classList.remove('active');});
+    btn.classList.add('active');
+    var val=btn.getAttribute('data-val');
+    if(group==='q2') document.getElementById('q2warn').style.display=(val==='8日以上前')?'block':'none';
+    if(group==='q4') document.getElementById('q4name').style.display=(val==='はい')?'block':'none';
+    if(group==='q6') document.getElementById('q6month').style.display=(val==='はい')?'block':'none';
+  });
+
+  /* ヘルパー */
+  function chips(id){
+    return Array.prototype.map.call(
+      document.querySelectorAll('#'+id+' .chip.active'),
+      function(el){return el.getAttribute('data-val');}
+    ).join('、');
+  }
+  function radio(group){
+    var el=document.querySelector('.rbtn.active[data-group="'+group+'"]');
+    return el?el.getAttribute('data-val'):'';
+  }
+  function v(id){var el=document.getElementById(id);return el?el.value.trim():'';}
+
+  function buildData(){
+    var dob=[v('dobY')?v('dobY')+'年':'',v('dobM')?v('dobM')+'月':'',v('dobD')?v('dobD')+'日':''].filter(Boolean).join('');
+    return {
+      q1:chips('q1')+(v('q1other')?' / その他:'+v('q1other'):''),
+      q2:radio('q2'), q3a:radio('q3a'),
+      q3b:chips('q3b')+(v('q3bother')?' / その他:'+v('q3bother'):''),
+      q3c:chips('q3c')+(v('q3cother')?' / その他:'+v('q3cother'):''),
+      q3d:chips('q3d'),
+      q4:radio('q4')+(v('q4nameVal')?' ('+v('q4nameVal')+')':''),
+      q5:chips('q5')+(v('q5other')?' / その他:'+v('q5other'):''),
+      q6:radio('q6')+(v('q6monthVal')?' '+v('q6monthVal'):''),
+      q6s:chips('q6s'), q7:chips('q7'),
+      name:v('pName'), kana:v('pKana'), gender:radio('gender'), dob:dob,
+      zip:v('pZip'), addr:v('pAddr'), tel:v('pTel'),
+      job:v('pJob'), hobby:v('pHobby'),
+      marriage:radio('marriage')+(v('pKids')?' 子供'+v('pKids')+'人':''),
+      intro:radio('intro')+(v('introDetail')?' ('+v('introDetail')+')':'')
+    };
+  }
+
+  /* 印刷・メール共通レイアウトHTML生成 */
+  function buildLayoutHTML(d, mode){
+    /* mode: 'print'=印刷ツールバーあり / 'email'=本文埋め込み用 */
+    var now=new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+    var accent='#1D9E75';
+
+    var css=''
+      +'*{box-sizing:border-box;margin:0;padding:0}'
+      +'body{font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",Arial,sans-serif;'
+      +'background:#efefed;padding:16px;color:#111;font-size:12px}'
+      +'.toolbar{max-width:480px;margin:0 auto 10px;display:flex;gap:8px}'
+      +'.toolbar button{padding:8px 20px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;border:none}'
+      +'.btn-p{background:'+accent+';color:#fff}'
+      +'.btn-c{background:#fff;color:#333;border:1.5px solid #ccc!important}'
+      +'.page{background:#fff;max-width:480px;margin:0 auto;padding:24px 28px;border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,.13)}'
+      +'.clinic{font-size:18px;font-weight:700;text-align:center;letter-spacing:.07em;margin-bottom:3px}'
+      +'.form-title{font-size:14px;font-weight:700;text-align:center;padding-bottom:7px;'
+      +'border-bottom:2px solid #111;margin-bottom:5px}'
+      +'.rec-date{font-size:11px;color:#888;text-align:right;margin-bottom:10px}'
+      +'.block{margin-bottom:8px;page-break-inside:avoid}'
+      +'.block-head{font-size:11px;font-weight:700;background:#f4f4f2;padding:4px 9px;'
+      +'border-left:3px solid '+accent+';margin-bottom:0}'
+      +'.ans-table{width:100%;border-collapse:collapse}'
+      +'.ans-table td{font-size:11px;padding:4px 8px;border:1px solid #e8e8e8;vertical-align:top}'
+      +'.ans-table td.key{background:#fafaf8;color:#555;width:28%;font-weight:600;white-space:nowrap}'
+      +'.ans-table td.val{color:#111}'
+      +'.info-tbl{width:100%;border-collapse:collapse;margin-top:0}'
+      +'.info-tbl td{padding:4px 8px;border:1px solid #e0e0e0;font-size:11px;vertical-align:top}'
+      +'.info-tbl td.lbl{background:#f7f7f5;color:#555;width:22%;font-weight:700;white-space:nowrap}'
+      +'.divider{border:none;border-top:1px solid #ddd;margin:6px 0}'
+      +'.footer{font-size:9px;color:#bbb;text-align:center;margin-top:8px;padding-top:6px;border-top:1px solid #eee}'
+            +'@media print{'
+      +'@page{size:A4;margin:0}'
+      +'body{background:#fff;padding:0;margin:0}'
+      +'.toolbar{display:none!important}'
+      +'.page{box-shadow:none!important;border-radius:0!important;margin:0!important;padding:8mm 10mm!important;max-width:100%!important;width:100%!important}'
+      +'.block{page-break-inside:avoid}'
+      +'}';
+
+    var body='';
+
+    if(mode==='print'){
+      body+='<div class="toolbar">'
+        +'<button class="btn-p" onclick="doPrint()">印刷する</button>'
+        +'<button class="btn-c" onclick="window.close()">閉じる</button>'
+        +'</div>';
+    }
+
+    body+='<div class="page">';
+    body+='<div class="clinic">ひかり鍼灸整骨院</div>';
+    body+='<div class="form-title">問　診　票</div>';
+    body+='<div class="rec-date">記入日: '+now+'</div>';
+
+    var sections=[
+      {
+        label:'1. おツライところ',
+        rows:[{k:'部位・箇所',v:d.q1}]
+      },
+      {
+        label:'2. いつ頃から',
+        rows:[{k:'発症時期',v:d.q2}]
+      },
+      {
+        label:'3. どのような状況で',
+        rows:[
+          {k:'どのような時に',v:d.q3a},
+          {k:'何をしていて',v:d.q3b},
+          {k:'場所',v:d.q3c},
+          {k:'負傷状況',v:d.q3d}
+        ]
+      },
+      {
+        label:'4. 現在の通院',
+        rows:[{k:'通院中の医療機関',v:d.q4}]
+      },
+      {
+        label:'5. 過去の診断症状',
+        rows:[{k:'既往症',v:d.q5}]
+      },
+      {
+        label:'6. 女性限定',
+        rows:[{k:'妊娠',v:d.q6},{k:'女性特有の症状',v:d.q6s}]
+      },
+      {
+        label:'7. 希望施術',
+        rows:[{k:'施術内容',v:d.q7}]
+      }
+    ];
+
+    sections.forEach(function(sec){
+      body+='<div class="block"><div class="block-head">'+sec.label+'</div>';
+      body+='<table class="ans-table">';
+      sec.rows.forEach(function(r){
+        body+='<tr><td class="key">'+r.k+'</td><td class="val">'+(r.v||'—')+'</td></tr>';
+      });
+      body+='</table></div>';
+    });
+
+    body+='<hr class="divider">';
+    body+='<div class="block"><div class="block-head">個人情報</div>';
+    body+='<table class="info-tbl">';
+
+    /* 全項目1列 */
+    var infoAll=[
+      ['お名前',d.name+(d.kana?' ('+d.kana+')':'')],
+      ['性別',d.gender],
+      ['生年月日',d.dob],
+      ['郵便番号',d.zip],
+      ['ご住所',d.addr],
+      ['電話番号',d.tel],
+      ['職業',d.job],
+      ['趣味',d.hobby],
+      ['結婚・お子様',d.marriage],
+      ['来院のきっかけ',d.intro]
+    ];
+    for(var i=0;i<infoAll.length;i++){
+      body+='<tr>'
+        +'<td class="lbl" style="width:26%">'+infoAll[i][0]+'</td>'
+        +'<td colspan="3">'+(infoAll[i][1]||'—')+'</td>'
+        +'</tr>';
+    }
+    body+='</table></div>';
+
+    if(mode==='print'){
+
+    }
+
+    body+='<div class="footer">ひかり鍼灸整骨院 〒672-8043 兵庫県姫路市飾磨区上野田3丁目81番地3 / TEL: 079-228-9687</div>';
+    if(mode==='print'){
+      body+='<script>'
+        +'function doPrint(){window.print();}'
+        +'</scr'+'ipt>';
+    }
+    body+='</div>'; /* /page */
+
+    return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
+      +'<title>問診票 — ひかり鍼灸整骨院</title>'
+      +'<style>'+css+'</style></head><body>'+body+'</body></html>';
+  }
+
+  /* 確認ボタン → 直接印刷プレビューへ */
+  document.getElementById('confirmBtn').addEventListener('click',function(){
+    if(!document.getElementById('agreeCheck').checked){alert('保険に関する同意チェックをお願いします');return;}
+    if(!v('pName')){alert('お名前を入力してください');return;}
+    if(!v('pTel')){alert('電話番号を入力してください');return;}
+    var d=buildData();
+    openPrintWindow(d);
+  });
+
+  /* 印刷ウィンドウを開く */
+  function openPrintWindow(d){
+    var html=buildLayoutHTML(d,'print');
+    var pw=window.open('','_blank','width=900,height=980,scrollbars=yes');
+    if(pw){
+      pw.document.open();
+      pw.document.write(html);
+      pw.document.close();
+      /* 印刷時にページにフィットするスクリプトを注入 */
+      pw.addEventListener('load', function(){
+        var style = pw.document.createElement('style');
+        style.textContent = '@media print{'
+          + '@page{size:A4;margin:0}'
+          + 'html,body{margin:0;padding:0;background:#fff}'
+          + '.toolbar{display:none!important}'
+          + '.page{'
+          + '  box-shadow:none!important;border-radius:0!important;'
+          + '  margin:0 auto!important;padding:10mm 12mm!important;'
+          + '  max-width:100%!important;width:100%!important'
+          + '}'
+          + '.block{page-break-inside:avoid}'
+          + '}';
+        pw.document.head.appendChild(style);
+      });
+    } else {
+      alert('ポップアップがブロックされています。\nブラウザのポップアップ許可設定を確認してください。');
+    }
+  }
+
+  /* メール送信（Vercel API経由） */
+  function sendEmail(d){
+    var dest=document.getElementById('destEmail').value.trim();
+    if(!dest){alert('送信先メールアドレスを入力してください');return;}
+    var htmlBody=buildLayoutHTML(d,'email');
+    var sendBtn=document.getElementById('sendMailBtn');
+    sendBtn.textContent='送信中...';
+    sendBtn.disabled=true;
+    fetch('/api/send',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        to:dest,
+        subject:'【問診票】'+d.name+' 様',
+        html:htmlBody
+      })
+    }).then(function(r){return r.json();})
+    .then(function(res){
+      sendBtn.textContent='メール送信';
+      sendBtn.disabled=false;
+      if(res.ok){
+        alert('送信完了しました！');
+      } else {
+        alert('送信失敗: '+(res.error||'不明なエラー'));
+      }
+    }).catch(function(e){
+      sendBtn.textContent='メール送信';
+      sendBtn.disabled=false;
+      alert('送信失敗: '+e.message);
+    });
+  }
+
+
+})();
+
+/* 郵便番号 → 住所自動入力（グローバル関数） */
+var _zipTimer=null;
+function autoFillAddress(val){
+  var zip=val.replace(/[^0-9]/g,'');
+  var status=document.getElementById('zipStatus');
+  if(zip.length<7){status.textContent='';return;}
+  if(_zipTimer)clearTimeout(_zipTimer);
+  status.textContent='検索中...';
+  status.style.color='#aaa';
+  _zipTimer=setTimeout(function(){
+    fetch('https://zipcloud.ibsnet.co.jp/api/search?zipcode='+zip)
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(data.results && data.results[0]){
+          var r=data.results[0];
+          document.getElementById('pAddr').value=r.address1+r.address2+r.address3;
+          status.textContent='✓ 自動入力しました';
+          status.style.color='#1D9E75';
+          setTimeout(function(){status.textContent='';},2500);
+          document.getElementById('pAddr').focus();
+        } else {
+          status.textContent='該当なし';
+          status.style.color='#c0392b';
+        }
+      })
+      .catch(function(){
+        status.textContent='取得失敗';
+        status.style.color='#c0392b';
+      });
+  },500);
+}
+</script>
+</body>
+</html>
