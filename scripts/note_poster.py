@@ -208,41 +208,29 @@ async def _publish(page, price: int):
 
     await _save_ss(page, "07b_price_set")
 
-    # ページ最上部にスクロールして「投稿する」ボタンを探す
-    await page.evaluate("window.scrollTo(0, 0)")
-    await page.wait_for_timeout(500)
-
-    submitted = False
-    for sel in [
-        'button:has-text("投稿する")',
-        'button:has-text("公開する")',
-        'button:has-text("投稿")',
-        '[data-testid="submit-button"]',
-        'button[type="submit"]',
-    ]:
-        try:
-            btn = page.locator(sel).first
-            await btn.wait_for(timeout=4000, state="visible")
-            await btn.click()
-            print(f"[INFO] 投稿ボタン: {sel}")
-            submitted = True
-            break
-        except Exception:
-            pass
-
-    if not submitted:
-        # JavaScript で全ボタンを探してテキストマッチ
-        await page.evaluate("""
-            () => {
-                const btns = Array.from(document.querySelectorAll('button'));
-                const target = btns.find(b =>
-                    b.textContent.includes('投稿') || b.textContent.includes('公開')
-                );
-                if (target) target.click();
-            }
-        """)
-        print("[INFO] JS fallback で投稿ボタンをクリック")
-        await page.wait_for_timeout(1000)
+    # モーダル内の「投稿する」ボタンをJSで強制クリック（スクロール位置に関係なく）
+    clicked = await page.evaluate("""
+        () => {
+            const btns = Array.from(document.querySelectorAll('button'));
+            const target = btns.find(b => {
+                const t = b.textContent.trim();
+                return t === '投稿する' || t === '公開する' || t === '投稿';
+            });
+            if (target) { target.click(); return true; }
+            return false;
+        }
+    """)
+    if clicked:
+        print("[INFO] JS で投稿ボタンをクリック")
+    else:
+        # Playwright でも試みる（force=Trueで非表示でも押す）
+        for sel in ['button:has-text("投稿する")', 'button:has-text("公開する")', 'button:has-text("投稿")']:
+            try:
+                await page.locator(sel).first.click(force=True, timeout=3000)
+                print(f"[INFO] force click: {sel}")
+                break
+            except Exception:
+                pass
 
     await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
