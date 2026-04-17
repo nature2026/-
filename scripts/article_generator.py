@@ -72,7 +72,7 @@ def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> di
         raise ValueError("GEMINI_API_KEY が未設定です。")
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     prompt = _build_prompt(genre, themes, today)
 
     for attempt in range(1, retries + 1):
