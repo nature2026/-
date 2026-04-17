@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import theme_collector
 import article_generator
+import image_fetcher
 import note_poster
 
 JST = timezone(timedelta(hours=9))
@@ -36,6 +37,11 @@ def save_article(article: dict, genre_id: str, today: str) -> Path:
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{today}_{genre_id}.md"
     with open(path, "w", encoding="utf-8") as f:
+        if article.get("cover_image"):
+            img = article["cover_image"]
+            f.write(f"<!-- cover: {img['url']} -->\n")
+            f.write(f"<!-- credit: {img['credit']} -->\n\n")
+        f.write(f"# {article['title']}\n\n")
         f.write(article["full_markdown"])
     return path
 
@@ -60,16 +66,32 @@ def run():
     article = article_generator.generate(genre, themes, today)
     print(f"  タイトル: {article['title']}")
 
-    # ③ ローカル保存（必ず実行）
-    path = save_article(article, genre["id"], today)
-    print(f"  保存先: {path}")
+    # ③ カバー画像取得
+    print("\n[STEP 3] カバー画像取得 (Unsplash)...")
+    cover = image_fetcher.fetch_cover_image(genre["id"], article["title"])
+    if cover:
+        article["cover_image"] = cover
+        print(f"  画像URL: {cover['url']}")
+        print(f"  クレジット: {cover['credit']}")
+    else:
+        article["cover_image"] = None
+        print("  画像なし（スキップ）")
 
-    # ④ note投稿（失敗してもパイプライン全体は成功扱い）
+    # ④ ローカル保存（必ず実行）
+    path = save_article(article, genre["id"], today)
+    print(f"\n[STEP 4] 保存先: {path}")
+
+    # ⑤ note投稿（失敗してもパイプライン全体は成功扱い）
     if os.environ.get("NOTE_EMAIL") and os.environ.get("NOTE_PASSWORD"):
-        print(f"\n[STEP 3] note.com に投稿 (価格: {price}円)...")
+        print(f"\n[STEP 5] note.com に投稿 (価格: {price}円)...")
         try:
             url = note_poster.post_sync(article, price)
             print(f"  投稿URL: {url}")
+            if cover and os.environ.get("UNSPLASH_ACCESS_KEY"):
+                image_fetcher.trigger_download(
+                    os.environ["UNSPLASH_ACCESS_KEY"],
+                    cover["download_url"],
+                )
         except Exception as e:
             print(f"  [WARN] note投稿失敗（記事はarticles/に保存済み）: {e}")
     else:
