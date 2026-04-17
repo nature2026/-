@@ -25,7 +25,6 @@ def load_config() -> dict:
 
 
 def pick_genre(genres: list[dict]) -> dict:
-    # 日付でジャンルをローテーション
     day_index = datetime.now(tz=JST).toordinal() % len(genres)
     genre = genres[day_index]
     print(f"[INFO] 本日のジャンル: {genre['name']}")
@@ -37,7 +36,6 @@ def save_article(article: dict, genre_id: str, today: str) -> Path:
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{today}_{genre_id}.md"
     with open(path, "w", encoding="utf-8") as f:
-        f.write(f"# {article['title']}\n\n")
         f.write(article["full_markdown"])
     return path
 
@@ -48,9 +46,9 @@ def run():
     print(f"  AI note 自動投稿パイプライン  {today}")
     print(f"{'='*50}\n")
 
-    cfg    = load_config()
-    genre  = pick_genre(cfg["genres"])
-    price  = genre.get("price", cfg["note"]["default_price"])
+    cfg   = load_config()
+    genre = pick_genre(cfg["genres"])
+    price = genre.get("price", cfg["note"]["default_price"])
 
     # ① テーマ収集
     print("[STEP 1] テーマ収集...")
@@ -58,26 +56,27 @@ def run():
     print(f"  取得テーマ: {themes[:3]}")
 
     # ② 記事生成
-    print("\n[STEP 2] 記事生成 (Gemini)...")
+    print("\n[STEP 2] 記事生成 (Groq)...")
     article = article_generator.generate(genre, themes, today)
     print(f"  タイトル: {article['title']}")
 
-    # ③ ローカル保存
+    # ③ ローカル保存（必ず実行）
     path = save_article(article, genre["id"], today)
     print(f"  保存先: {path}")
 
-    # ④ note投稿
-    should_post = os.environ.get("NOTE_EMAIL") and os.environ.get("NOTE_PASSWORD")
-    if should_post:
+    # ④ note投稿（失敗してもパイプライン全体は成功扱い）
+    if os.environ.get("NOTE_EMAIL") and os.environ.get("NOTE_PASSWORD"):
         print(f"\n[STEP 3] note.com に投稿 (価格: {price}円)...")
-        url = note_poster.post_sync(article, price)
-        print(f"  投稿URL: {url}")
+        try:
+            url = note_poster.post_sync(article, price)
+            print(f"  投稿URL: {url}")
+        except Exception as e:
+            print(f"  [WARN] note投稿失敗（記事はarticles/に保存済み）: {e}")
     else:
-        print("\n[SKIP] NOTE_EMAIL / NOTE_PASSWORD 未設定のため投稿をスキップ")
-        print("  → articles/ フォルダの記事を手動でコピー＆ペーストしてください")
+        print("\n[SKIP] NOTE_EMAIL/PASSWORD 未設定 → articles/ から手動投稿してください")
 
     print(f"\n{'='*50}")
-    print("  完了！")
+    print(f"  完了！記事: {path.name}")
     print(f"{'='*50}\n")
 
 
