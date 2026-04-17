@@ -1,0 +1,34 @@
+{
+  "genres": [
+    {
+      "id": "money",
+      "name": "稼ぐ系",
+      "persona": "副業で月100万円を達成した元サラリーマン",
+      "keywords": ["副業", "在宅ワーク", "SNS収入", "ネット副業", "フリーランス"],
+      "rss_feeds": [
+        "https://jp.techcrunch.com/feed/",
+        "https://www.businessinsider.jp/feed/index.xml",
+        "https://news.yahoo.co.jp/rss/topics/business.xml"
+      ],
+      "tags": ["副業", "稼ぐ", "在宅ワーク", "フリーランス", "SNS収入"],
+      "price": 980
+    },
+    {
+      "id": "investment",
+      "name": "投資・資産形成",
+      "persona": "資産3000万円を築いた個人投資家",
+      "keywords": ["NISA", "株式投資", "投資信託", "資産形成", "仮想通貨"],
+      "rss_feeds": [
+        "https://news.yahoo.co.jp/rss/topics/business.xml",
+        "https://jp.reuters.com/tools/rss",
+        "https://www.nikkei.com/rss/rss.do?ser=market"
+      ],
+      "tags": ["投資", "NISA", "資産形成", "株式投資", "お金"],
+      "price": 1480
+    }
+  ],
+  "note": {
+    "default_price": 980,
+    "publish": true
+  }
+}
