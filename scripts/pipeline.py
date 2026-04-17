@@ -37,11 +37,11 @@ def save_article(article: dict, genre_id: str, today: str) -> Path:
     out_dir.mkdir(exist_ok=True)
     path = out_dir / f"{today}_{genre_id}.md"
     with open(path, "w", encoding="utf-8") as f:
+        f.write(f"# {article['title']}\n\n")
         if article.get("cover_image"):
             img = article["cover_image"]
-            f.write(f"<!-- cover: {img['url']} -->\n")
-            f.write(f"<!-- credit: {img['credit']} -->\n\n")
-        f.write(f"# {article['title']}\n\n")
+            f.write(f"![カバー画像]({img['url']})\n")
+            f.write(f"*{img['credit']}*\n\n")
         f.write(article["full_markdown"])
     return path
 
