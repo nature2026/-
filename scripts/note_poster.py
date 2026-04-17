@@ -208,29 +208,32 @@ async def _publish(page, price: int):
 
     await _save_ss(page, "07b_price_set")
 
-    # モーダル内の「投稿する」ボタンをJSで強制クリック（スクロール位置に関係なく）
+    # ページ上の全ボタンをログ出力して確認
+    all_btns = await page.evaluate("""
+        () => Array.from(document.querySelectorAll('button'))
+                   .map(b => b.textContent.trim())
+                   .filter(t => t.length > 0)
+    """)
+    print(f"[DEBUG] 現在のボタン一覧: {all_btns}")
+
+    # テキストマッチで投稿ボタンをJS強制クリック
     clicked = await page.evaluate("""
         () => {
             const btns = Array.from(document.querySelectorAll('button'));
             const target = btns.find(b => {
                 const t = b.textContent.trim();
-                return t === '投稿する' || t === '公開する' || t === '投稿';
+                return t === '投稿する' || t === '公開する' || t === '投稿'
+                    || t === '保存して公開' || t === '公開' || t.includes('投稿');
             });
-            if (target) { target.click(); return true; }
-            return false;
+            if (target) {
+                console.log('clicking:', target.textContent.trim());
+                target.click();
+                return target.textContent.trim();
+            }
+            return null;
         }
     """)
-    if clicked:
-        print("[INFO] JS で投稿ボタンをクリック")
-    else:
-        # Playwright でも試みる（force=Trueで非表示でも押す）
-        for sel in ['button:has-text("投稿する")', 'button:has-text("公開する")', 'button:has-text("投稿")']:
-            try:
-                await page.locator(sel).first.click(force=True, timeout=3000)
-                print(f"[INFO] force click: {sel}")
-                break
-            except Exception:
-                pass
+    print(f"[INFO] クリックしたボタン: {clicked}")
 
     await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
