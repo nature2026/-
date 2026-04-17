@@ -79,33 +79,67 @@ async def _upload_cover_image(page, image_url: str):
 
 
 async def _fill_title(page, title: str):
-    for sel in ['[placeholder="タイトル"]', '[data-placeholder="タイトル"]',
-                '.o-noteEditHeader__title', 'textarea[name="title"]',
-                'h1[contenteditable="true"]']:
+    for sel in [
+        '[placeholder="記事タイトル"]',
+        '[data-placeholder="記事タイトル"]',
+        '[placeholder="タイトル"]',
+        '[data-placeholder="タイトル"]',
+        '.o-noteEditHeader__title',
+        'textarea[name="title"]',
+        'h1[contenteditable="true"]',
+        'div[contenteditable="true"][data-placeholder]',
+    ]:
         try:
             el = page.locator(sel).first
-            await el.wait_for(timeout=5000, state="visible")
+            await el.wait_for(timeout=4000, state="visible")
             await el.click()
+            await page.wait_for_timeout(300)
             await el.fill(title)
             print(f"[INFO] タイトル入力: {title[:30]}...")
             return
         except Exception:
             pass
+
+    # フォールバック: keyboard入力
+    try:
+        await page.keyboard.press("Tab")
+        await page.wait_for_timeout(500)
+        await page.keyboard.type(title)
+        print(f"[INFO] タイトル入力(keyboard): {title[:30]}...")
+        return
+    except Exception:
+        pass
+
     raise RuntimeError("タイトル入力欄が見つかりませんでした")
 
 
 async def _fill_body(page, free_part: str, paid_part: str):
+    full_content = free_part + "\n\n＝＝＝ ここから有料 ＝＝＝\n\n" + paid_part
+
+    # まず「+」ボタンをクリックしてエディタをアクティブにする
+    try:
+        plus_btn = page.locator('button[aria-label*="追加"], button.p-note-editor__add-button, button:has-text("+")').first
+        await plus_btn.wait_for(timeout=3000, state="visible")
+        await plus_btn.click()
+        await page.wait_for_timeout(500)
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(300)
+    except Exception:
+        pass
+
     for sel in ['.ProseMirror', '[contenteditable="true"]', '.o-noteEditContents__body']:
         try:
-            el = page.locator(sel).first
+            els = page.locator(sel)
+            count = await els.count()
+            # タイトル以外の2番目以降のcontenteditable（本文）を使う
+            el = els.nth(1) if count > 1 else els.first
             await el.wait_for(timeout=5000, state="visible")
             await el.click()
             await page.wait_for_timeout(500)
-            full_content = free_part + "\n\n＝＝＝ ここから有料 ＝＝＝\n\n" + paid_part
             await page.evaluate(
                 """(text) => {
-                    const el = document.querySelector('.ProseMirror') ||
-                               document.querySelector('[contenteditable="true"]');
+                    const els = document.querySelectorAll('.ProseMirror, [contenteditable="true"]');
+                    const el = els.length > 1 ? els[1] : els[0];
                     if (el) {
                         el.focus();
                         document.execCommand('selectAll', false, null);
@@ -114,6 +148,7 @@ async def _fill_body(page, free_part: str, paid_part: str):
                 }""",
                 full_content,
             )
+            await _save_ss(page, "05_body_filled")
             print("[INFO] 本文入力完了")
             return
         except Exception:
