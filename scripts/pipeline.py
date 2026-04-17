@@ -82,7 +82,7 @@ def run():
     print(f"\n[STEP 4] 保存先: {path}")
 
     # ⑤ note投稿（失敗してもパイプライン全体は成功扱い）
-    if os.environ.get("NOTE_EMAIL") and os.environ.get("NOTE_PASSWORD"):
+    if os.environ.get("NOTE_COOKIES") or (os.environ.get("NOTE_EMAIL") and os.environ.get("NOTE_PASSWORD")):
         print(f"\n[STEP 5] note.com に投稿 (価格: {price}円)...")
         try:
             url = note_poster.post_sync(article, price)
