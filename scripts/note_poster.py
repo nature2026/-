@@ -243,7 +243,6 @@ async def _publish(page, price: int):
         """)
         print("[INFO] JS fallback で投稿ボタンをクリック")
         await page.wait_for_timeout(1000)
-            pass
 
     await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
