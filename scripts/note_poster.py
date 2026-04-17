@@ -159,45 +159,62 @@ async def _fill_body(page, free_part: str, paid_part: str):
 async def _publish(page, price: int):
     await _save_ss(page, "06_before_publish")
 
-    for sel in ['button:has-text("公開設定")', 'button:has-text("投稿設定")',
-                '[data-testid="publish-button"]', 'button.o-publishButton']:
+    # 「公開に進む」ボタン（note新UIのメインボタン）
+    for sel in [
+        'button:has-text("公開に進む")',
+        'button:has-text("公開設定")',
+        'button:has-text("投稿設定")',
+        '[data-testid="publish-button"]',
+        'button.o-publishButton',
+    ]:
         try:
             btn = page.locator(sel).first
             await btn.wait_for(timeout=5000, state="visible")
             await btn.click()
-            await page.wait_for_timeout(1500)
-            print(f"[INFO] 公開設定ボタン: {sel}")
+            await page.wait_for_timeout(2000)
+            print(f"[INFO] 公開ボタン: {sel}")
             break
         except Exception:
             pass
 
     await _save_ss(page, "07_publish_modal")
 
-    for sel in ['label:has-text("有料")', 'input[type="radio"][value="paid"]']:
+    # 有料設定
+    for sel in ['label:has-text("有料")', 'input[type="radio"][value="paid"]',
+                'button:has-text("有料")', '[data-testid="paid-toggle"]']:
         try:
             el = page.locator(sel).first
             await el.wait_for(timeout=3000, state="visible")
             await el.click()
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(800)
             print("[INFO] 有料設定オン")
             break
         except Exception:
             pass
 
-    for sel in ['input[name="price"]', 'input[placeholder*="価格"]', 'input[placeholder*="金額"]']:
+    # 価格入力
+    for sel in ['input[name="price"]', 'input[placeholder*="価格"]',
+                'input[placeholder*="金額"]', 'input[type="number"]']:
         try:
             el = page.locator(sel).first
             await el.wait_for(timeout=3000, state="visible")
             await el.triple_click()
-            await el.type(str(price))
+            await el.fill(str(price))
+            await page.wait_for_timeout(500)
             print(f"[INFO] 価格: {price}円")
             break
         except Exception:
             pass
 
-    await page.wait_for_timeout(500)
+    await _save_ss(page, "07b_price_set")
 
-    for sel in ['button:has-text("投稿する")', 'button:has-text("公開する")', 'button:has-text("投稿")']:
+    # 「投稿する」ボタン
+    for sel in [
+        'button:has-text("投稿する")',
+        'button:has-text("公開する")',
+        'button:has-text("投稿")',
+        '[data-testid="submit-button"]',
+    ]:
         try:
             btn = page.locator(sel).first
             await btn.wait_for(timeout=5000, state="visible")
