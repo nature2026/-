@@ -5,9 +5,9 @@
 
 import os
 import time
-import google.generativeai as genai
+from google import genai
 
-FREE_RATIO = 0.30  # 記事全体の約30%を無料公開部分にする
+FREE_RATIO = 0.30
 
 
 def _build_prompt(genre: dict, themes: list[str], today: str) -> str:
@@ -58,28 +58,19 @@ def _build_prompt(genre: dict, themes: list[str], today: str) -> str:
 
 
 def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> dict:
-    """
-    記事を生成して辞書で返す。
-    {
-      "title": str,
-      "free_part": str,
-      "paid_part": str,
-      "full_markdown": str,
-    }
-    """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY が未設定です。")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    client = genai.Client(api_key=api_key)
     prompt = _build_prompt(genre, themes, today)
 
     for attempt in range(1, retries + 1):
         try:
-            resp = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
                     temperature=0.8,
                     max_output_tokens=4096,
                 ),
@@ -90,39 +81,30 @@ def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> di
             print(f"[WARN] Gemini attempt {attempt}/{retries}: {e}")
             if attempt == retries:
                 raise
-            time.sleep(5 * attempt)
+            time.sleep(10 * attempt)
 
     return _parse_article(full_md)
 
 
 def _parse_article(full_md: str) -> dict:
-    lines = full_md.strip().splitlines()
-
-    # タイトル抽出（最初の # 行）
     title = ""
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            title = stripped[2:].strip()
+    for line in full_md.strip().splitlines():
+        if line.strip().startswith("# "):
+            title = line.strip()[2:].strip()
             break
     if not title:
         title = "【2026年最新】完全ガイド"
 
-    # 有料マーカーで分割
     PAID_MARKER = "＝＝＝ ここから有料"
-    full_text = full_md
-    if PAID_MARKER in full_text:
-        idx = full_text.index(PAID_MARKER)
-        free_part = full_text[:idx].strip()
-        paid_part = full_text[idx:].strip()
+    if PAID_MARKER in full_md:
+        idx = full_md.index(PAID_MARKER)
+        free_part = full_md[:idx].strip()
+        paid_part = full_md[idx:].strip()
     else:
-        # マーカーがない場合は文字数で分割
-        mid = int(len(full_text) * FREE_RATIO)
-        split_at = full_text.rfind("\n\n", 0, mid)
-        if split_at == -1:
-            split_at = mid
-        free_part = full_text[:split_at].strip()
-        paid_part = full_text[split_at:].strip()
+        mid = int(len(full_md) * FREE_RATIO)
+        split_at = full_md.rfind("\n\n", 0, mid) or mid
+        free_part = full_md[:split_at].strip()
+        paid_part = full_md[split_at:].strip()
 
     return {
         "title": title,
