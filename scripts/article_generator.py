@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-記事生成: Gemini API を使って note 向け有料記事を生成する。
+記事生成: Groq API (Llama 3.3 70B) を使って note 向け有料記事を生成する。
 """
 
 import os
 import time
-from google import genai
+from groq import Groq
 
 FREE_RATIO = 0.30
 
@@ -58,34 +58,30 @@ def _build_prompt(genre: dict, themes: list[str], today: str) -> str:
 
 
 def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> dict:
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY が未設定です。")
+        raise ValueError("GROQ_API_KEY が未設定です。")
 
-    client = genai.Client(api_key=api_key)
+    client = Groq(api_key=api_key)
     prompt = _build_prompt(genre, themes, today)
 
     for attempt in range(1, retries + 1):
         try:
-            resp = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    temperature=0.8,
-                    max_output_tokens=4096,
-                ),
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.8,
+                max_tokens=4096,
             )
-            full_md = resp.text
+            full_md = resp.choices[0].message.content
+            print(f"[INFO] 記事生成完了 ({len(full_md)}文字)")
             break
         except Exception as e:
             err = str(e)
-            print(f"[WARN] Gemini attempt {attempt}/{retries}: {err[:200]}")
+            print(f"[WARN] Groq attempt {attempt}/{retries}: {err[:200]}")
             if attempt == retries:
                 raise
-            # クォータエラーは60秒待つ、それ以外は20秒
-            wait = 60 if "quota" in err.lower() or "429" in err else 20
-            print(f"[INFO] {wait}秒待機してリトライします...")
-            time.sleep(wait)
+            time.sleep(10 * attempt)
 
     return _parse_article(full_md)
 
