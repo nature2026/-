@@ -78,10 +78,14 @@ def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> di
             full_md = resp.text
             break
         except Exception as e:
-            print(f"[WARN] Gemini attempt {attempt}/{retries}: {e}")
+            err = str(e)
+            print(f"[WARN] Gemini attempt {attempt}/{retries}: {err[:200]}")
             if attempt == retries:
                 raise
-            time.sleep(10 * attempt)
+            # クォータエラーは60秒待つ、それ以外は20秒
+            wait = 60 if "quota" in err.lower() or "429" in err else 20
+            print(f"[INFO] {wait}秒待機してリトライします...")
+            time.sleep(wait)
 
     return _parse_article(full_md)
 
