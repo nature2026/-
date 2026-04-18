@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 note.com 自動投稿: クッキー認証 + Playwright でブラウザを操作して記事を公開する。
+カバー画像は自動保存後にAPIで直接アップロードする。
 """
 
 import os
@@ -23,9 +24,7 @@ def _save_ss(page, name: str):
 
 
 async def _login_with_cookies(context, cookies_json: str):
-    """クッキーをセットしてログイン済み状態にする"""
     cookies = json.loads(cookies_json)
-    # Playwright形式に変換
     pw_cookies = []
     for c in cookies:
         pc = {
@@ -45,38 +44,57 @@ async def _login_with_cookies(context, cookies_json: str):
     print(f"[INFO] クッキー {len(pw_cookies)} 件をセット")
 
 
-async def _upload_cover_image(page, image_url: str):
+def _upload_cover_api(note_key: str, image_url: str, cookie_dict: dict) -> bool:
+    """カバー画像をnote.com APIで直接アップロードする"""
     try:
-        resp = req_lib.get(image_url, timeout=15)
-        resp.raise_for_status()
+        img_resp = req_lib.get(image_url, timeout=15)
+        img_resp.raise_for_status()
     except Exception as e:
-        print(f"[WARN] 画像DL失敗: {e}")
-        return
+        print(f"[WARN] カバー画像DL失敗: {e}")
+        return False
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        f.write(resp.content)
+        f.write(img_resp.content)
         tmp_path = f.name
 
-    cover_selectors = [
-        'button:has-text("カバー画像")',
-        '[data-testid="cover-image-button"]',
-        '.o-noteEditHeader__coverImage button',
-        'button[aria-label*="カバー"]',
+    session = req_lib.Session()
+    for name, value in cookie_dict.items():
+        session.cookies.set(name, value, domain=".note.com")
+
+    # note.comのCSRFトークンをクッキーから取得
+    csrf = cookie_dict.get("_note_csrf", cookie_dict.get("csrf_token", ""))
+
+    endpoints = [
+        f"https://note.com/api/v1/text_notes/{note_key}/eyecatch",
+        f"https://note.com/api/v2/text_notes/{note_key}/eyecatch",
     ]
-    for sel in cover_selectors:
+    headers = {
+        "Referer": f"https://editor.note.com/notes/{note_key}/edit",
+        "X-Note-Csrf-Token": csrf,
+        "X-Csrf-Token": csrf,
+    }
+
+    for url in endpoints:
         try:
-            btn = page.locator(sel).first
-            await btn.wait_for(timeout=3000, state="visible")
-            async with page.expect_file_chooser(timeout=5000) as fc_info:
-                await btn.click()
-            fc = await fc_info.value
-            await fc.set_files(tmp_path)
-            await page.wait_for_timeout(2500)
-            print("[INFO] カバー画像アップロード完了")
-            return
-        except Exception:
-            pass
-    print("[WARN] カバー画像アップロードをスキップ")
+            with open(tmp_path, "rb") as f:
+                resp = session.post(
+                    url,
+                    files={"image": ("cover.jpg", f, "image/jpeg")},
+                    headers=headers,
+                    timeout=20,
+                )
+            print(f"[INFO] カバー画像API {resp.status_code}: {resp.text[:200]}")
+            if resp.ok:
+                os.unlink(tmp_path)
+                return True
+        except Exception as e:
+            print(f"[WARN] カバー画像API失敗 ({url}): {e}")
+
+    try:
+        os.unlink(tmp_path)
+    except Exception:
+        pass
+    return False
 
 
 async def _fill_title(page, title: str):
@@ -101,7 +119,6 @@ async def _fill_title(page, title: str):
         except Exception:
             pass
 
-    # フォールバック: keyboard入力
     try:
         await page.keyboard.press("Tab")
         await page.wait_for_timeout(500)
@@ -115,22 +132,20 @@ async def _fill_title(page, title: str):
 
 
 def _strip_markdown(text: str) -> str:
-    """Markdownの記号を除去してnoteエディタ用プレーンテキストに変換"""
-    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)  # 見出し
-    text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)      # 太字/斜体
-    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)                   # 画像
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)        # リンク
-    text = re.sub(r'^[-*]\s+', '・', text, flags=re.MULTILINE)   # 箇条書き
-    text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)    # 番号リスト
-    text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)        # 区切り線
-    text = re.sub(r'`{1,3}[^`]*`{1,3}', '', text)                # コード
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
+    text = re.sub(r'!\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r'^[-*]\s+', '・', text, flags=re.MULTILINE)
+    text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'`{1,3}[^`]*`{1,3}', '', text)
     return text
 
 
 async def _fill_body(page, free_part: str, paid_part: str):
     full_content = _strip_markdown(free_part) + "\n\n＝＝＝ ここから有料 ＝＝＝\n\n" + _strip_markdown(paid_part)
 
-    # まず「+」ボタンをクリックしてエディタをアクティブにする
     try:
         plus_btn = page.locator('button[aria-label*="追加"], button.p-note-editor__add-button, button:has-text("+")').first
         await plus_btn.wait_for(timeout=3000, state="visible")
@@ -145,7 +160,6 @@ async def _fill_body(page, free_part: str, paid_part: str):
         try:
             els = page.locator(sel)
             count = await els.count()
-            # タイトル以外の2番目以降のcontenteditable（本文）を使う
             el = els.nth(1) if count > 1 else els.first
             await el.wait_for(timeout=5000, state="visible")
             await el.click()
@@ -162,7 +176,6 @@ async def _fill_body(page, free_part: str, paid_part: str):
                 }""",
                 full_content,
             )
-            await _save_ss(page, "05_body_filled")
             print("[INFO] 本文入力完了")
             return
         except Exception:
@@ -173,7 +186,6 @@ async def _fill_body(page, free_part: str, paid_part: str):
 async def _publish(page, price: int):
     await _save_ss(page, "06_before_publish")
 
-    # 「公開に進む」ボタン（note新UIのメインボタン）
     for sel in [
         'button:has-text("公開に進む")',
         'button:has-text("公開設定")',
@@ -192,15 +204,10 @@ async def _publish(page, price: int):
             pass
 
     await _save_ss(page, "07_publish_modal")
-    print(f"[INFO] 公開後URL: {page.url}")
     await page.wait_for_timeout(2000)
 
-    # 「記事タイプ」タブをクリック
-    for sel in [
-        'button:has-text("記事タイプ")',
-        '[role="tab"]:has-text("記事タイプ")',
-        ':text-is("記事タイプ")',
-    ]:
+    # 記事タイプタブをクリック
+    for sel in ['button:has-text("記事タイプ")', ':text-is("記事タイプ")']:
         try:
             el = page.locator(sel).first
             await el.wait_for(timeout=4000, state="visible")
@@ -211,7 +218,7 @@ async def _publish(page, price: int):
         except Exception:
             pass
 
-    # 有料ラジオをJSで直接選択（React state対応）
+    # 有料ラジオをReact対応JSで選択
     paid_result = await page.evaluate("""
         () => {
             const radio = document.getElementById('paid') ||
@@ -224,10 +231,10 @@ async def _publish(page, price: int):
             return 'checked: ' + radio.checked;
         }
     """)
-    print(f"[INFO] 有料ラジオJS: {paid_result}")
+    print(f"[INFO] 有料ラジオ: {paid_result}")
     await page.wait_for_timeout(1500)
 
-    # 価格入力をJSで直接設定（React native setter経由）
+    # 価格をReact native setter経由で設定
     price_result = await page.evaluate(f"""
         () => {{
             const input = document.getElementById('price') ||
@@ -242,10 +249,10 @@ async def _publish(page, price: int):
             return 'value: ' + input.value;
         }}
     """)
-    print(f"[INFO] 価格JS設定: {price_result}")
-    await page.wait_for_timeout(2000)
+    print(f"[INFO] 価格JS: {price_result}")
+    await page.wait_for_timeout(1500)
 
-    # さらにPlaywright経由でも入力を試みる（可視チェックなし）
+    # Playwrightからも価格入力（force）
     try:
         price_el = page.locator('input#price, input[placeholder="300"]').first
         await price_el.click(force=True)
@@ -253,14 +260,13 @@ async def _publish(page, price: int):
         await page.keyboard.type(str(price))
         await page.keyboard.press("Tab")
         await page.wait_for_timeout(1000)
-        print(f"[INFO] 価格keyboard入力: {price}円")
+        print(f"[INFO] 価格keyboard: {price}円")
     except Exception as e:
-        print(f"[WARN] keyboard入力失敗: {e}")
+        print(f"[WARN] keyboard入力: {e}")
 
-    await _save_ss(page, "07b_settings_done")
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(1000)
 
-    # ドロワー内の全スクロール可能コンテナを最下部へスクロール
+    # ドロワー内全スクロール可能コンテナを最下部へ（投稿ボタンを表示）
     scrolled = await page.evaluate("""
         () => {
             const els = [...document.querySelectorAll('*')].filter(el => {
@@ -273,46 +279,12 @@ async def _publish(page, price: int):
             return els.length;
         }
     """)
-    print(f"[INFO] スクロール済みコンテナ数: {scrolled}")
+    print(f"[INFO] スクロール済みコンテナ: {scrolled}")
     await page.wait_for_timeout(1500)
-    await _save_ss(page, "07c_drawer_scrolled")
-
-    # 全テキスト（非可視含む）をtextContentで取得
-    full_text = await page.evaluate("() => document.body.textContent.slice(0, 5000)")
-    print(f"[DEBUG] 全textContent: {full_text}")
-
-    # TreeWalkerでテキストノードを直接探索（要素フィルタなし）
-    text_nodes = await page.evaluate("""
-        () => {
-            const results = [];
-            const walker = document.createTreeWalker(
-                document.body, NodeFilter.SHOW_TEXT, null
-            );
-            let node;
-            while (node = walker.nextNode()) {
-                const text = node.textContent.trim();
-                if (text.length > 0 && (
-                    text.includes('投稿') || text.includes('公開') || text.includes('送信')
-                )) {
-                    const p = node.parentElement;
-                    results.push({
-                        text: text.slice(0, 30),
-                        tag: p ? p.tagName : '',
-                        role: p ? (p.getAttribute('role') || '') : '',
-                        type: p ? (p.getAttribute('type') || '') : '',
-                        class: p ? (p.className || '').toString().slice(0, 80) : '',
-                    });
-                }
-            }
-            return results;
-        }
-    """)
-    print(f"[DEBUG] テキストノード(投稿/公開): {text_nodes}")
+    await _save_ss(page, "07b_scrolled")
 
     # 投稿ボタンクリック
     publish_clicked = False
-
-    # 1) Playwright標準クリック（全タグ対応）
     for sel in [
         'button:has-text("投稿する")', 'button:has-text("公開する")',
         '[role="button"]:has-text("投稿する")', '[role="button"]:has-text("公開する")',
@@ -331,13 +303,10 @@ async def _publish(page, price: int):
             pass
 
     if not publish_clicked:
-        # 2) JSでテキストノードの親要素をクリック
         r = await page.evaluate("""
             () => {
                 const keywords = ['投稿する', '公開する'];
-                const walker = document.createTreeWalker(
-                    document.body, NodeFilter.SHOW_TEXT, null
-                );
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
                 let node;
                 while (node = walker.nextNode()) {
                     const text = node.textContent.trim();
@@ -345,14 +314,14 @@ async def _publish(page, price: int):
                         const p = node.parentElement;
                         if (p) {
                             p.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-                            return text + ' [' + p.tagName + '.' + (p.className||'').slice(0,40) + ']';
+                            return text + ' [' + p.tagName + ']';
                         }
                     }
                 }
                 return null;
             }
         """)
-        print(f"[INFO] JS click result: {r}")
+        print(f"[INFO] JS click: {r}")
 
     await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
@@ -382,16 +351,12 @@ async def post(article: dict, price: int) -> str:
         )
         page = await context.new_page()
         try:
-            # クッキーでログイン
             await _login_with_cookies(context, cookies_json)
 
-            # ログイン確認
             await page.goto(NOTE_TOP_URL, wait_until="domcontentloaded")
             await page.wait_for_timeout(2000)
-            await _save_ss(page, "01_after_cookie_login")
             print(f"[INFO] トップURL: {page.url}")
 
-            # 新規記事ページへ
             await page.goto(NOTE_NEW_URL, wait_until="networkidle")
             await page.wait_for_timeout(2000)
             await _save_ss(page, "02_new_article")
@@ -399,16 +364,31 @@ async def post(article: dict, price: int) -> str:
             if "login" in page.url:
                 raise RuntimeError("クッキーが無効です。NOTE_COOKIESを更新してください。")
 
-            # カバー画像
-            cover = article.get("cover_image")
-            if cover and cover.get("url"):
-                await _upload_cover_image(page, cover["url"])
-
             await _fill_title(page, article["title"])
             await page.wait_for_timeout(500)
 
             await _fill_body(page, article["free_part"], article["paid_part"])
-            await page.wait_for_timeout(1000)
+
+            # 自動保存を待ってノートIDを取得
+            await page.wait_for_timeout(5000)
+            note_key_match = re.search(r'/notes/([^/]+)', page.url)
+            note_key = note_key_match.group(1) if note_key_match else None
+            print(f"[INFO] ノートID: {note_key} (URL: {page.url})")
+
+            # カバー画像をAPIでアップロード
+            cover = article.get("cover_image")
+            if cover and cover.get("url") and note_key and note_key != "new":
+                pw_cookies = await context.cookies()
+                cookie_dict = {c["name"]: c["value"] for c in pw_cookies}
+                ok = await asyncio.to_thread(
+                    _upload_cover_api, note_key, cover["url"], cookie_dict
+                )
+                if ok:
+                    print("[INFO] カバー画像アップロード完了")
+                else:
+                    print("[WARN] カバー画像アップロード失敗")
+            else:
+                print("[WARN] カバー画像スキップ（URL未取得またはURLなし）")
 
             url = await _publish(page, price)
             return url or page.url
