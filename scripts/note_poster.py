@@ -221,34 +221,42 @@ async def _publish(page, price: int):
             pass
 
     await _save_ss(page, "07b_price_set")
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(3000)
 
-    # 全要素から「投稿」「公開」を含む短テキスト要素を検索（タグ種類問わず）
-    found = await page.evaluate("""
+    # ページ下部までスクロールして遅延レンダリングを待つ
+    await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+    await page.wait_for_timeout(1000)
+    await _save_ss(page, "07c_scrolled")
+
+    # TreeWalkerでテキストノードを直接探索（要素フィルタなし）
+    text_nodes = await page.evaluate("""
         () => {
             const results = [];
-            for (const el of document.body.querySelectorAll('*')) {
-                if (el.children.length <= 2) {
-                    const text = el.textContent.trim();
-                    if (text.length > 0 && text.length <= 20) {
-                        results.push({
-                            tag: el.tagName,
-                            text: text,
-                            role: el.getAttribute('role') || '',
-                            type: el.getAttribute('type') || '',
-                            class: (el.className || '').toString().slice(0, 60),
-                        });
-                    }
+            const walker = document.createTreeWalker(
+                document.body, NodeFilter.SHOW_TEXT, null
+            );
+            let node;
+            while (node = walker.nextNode()) {
+                const text = node.textContent.trim();
+                if (text.length > 0 && (
+                    text.includes('投稿') || text.includes('公開') || text.includes('送信')
+                )) {
+                    const p = node.parentElement;
+                    results.push({
+                        text: text.slice(0, 30),
+                        tag: p ? p.tagName : '',
+                        role: p ? (p.getAttribute('role') || '') : '',
+                        type: p ? (p.getAttribute('type') || '') : '',
+                        class: p ? (p.className || '').toString().slice(0, 80) : '',
+                    });
                 }
             }
             return results;
         }
     """)
-    post_candidates = [e for e in found if '投稿' in e['text'] or '公開' in e['text']]
-    print(f"[DEBUG] 投稿/公開候補要素: {post_candidates}")
-    print(f"[DEBUG] 全短テキスト要素数: {len(found)}")
+    print(f"[DEBUG] テキストノード(投稿/公開): {text_nodes}")
 
-    # 投稿ボタンクリック — タグ種類問わず全探索
+    # 投稿ボタンクリック
     publish_clicked = False
 
     # 1) Playwright標準クリック（全タグ対応）
@@ -270,15 +278,22 @@ async def _publish(page, price: int):
             pass
 
     if not publish_clicked:
-        # 2) JS で全タグを検索してクリック（部分一致・完全一致）
+        # 2) JSでテキストノードの親要素をクリック
         r = await page.evaluate("""
             () => {
-                const keywords = ['投稿する', '公開する', '投稿', '公開'];
-                for (const el of document.body.querySelectorAll('*')) {
-                    const text = el.textContent.trim();
-                    if (keywords.includes(text) && el.children.length <= 2) {
-                        el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-                        return text + ' [' + el.tagName + ']';
+                const keywords = ['投稿する', '公開する'];
+                const walker = document.createTreeWalker(
+                    document.body, NodeFilter.SHOW_TEXT, null
+                );
+                let node;
+                while (node = walker.nextNode()) {
+                    const text = node.textContent.trim();
+                    if (keywords.includes(text)) {
+                        const p = node.parentElement;
+                        if (p) {
+                            p.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+                            return text + ' [' + p.tagName + '.' + (p.className||'').slice(0,40) + ']';
+                        }
                     }
                 }
                 return null;
