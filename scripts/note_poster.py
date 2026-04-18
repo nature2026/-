@@ -222,50 +222,60 @@ async def _publish(page, price: int):
 
     await _save_ss(page, "07b_price_set")
 
-    # 全ボタンをログ出力
-    all_btns = await page.evaluate("""
-        () => Array.from(document.querySelectorAll('button'))
-                   .map(b => b.textContent.trim()).filter(t => t.length > 0)
-    """)
-    print(f"[DEBUG] ボタン一覧: {all_btns}")
-
-    # モーダルのスクロールコンテナを最上部に戻す
-    await page.evaluate("""
+    # 全クリッカブル要素をログ出力（button + role=button + a タグ）
+    all_clickable = await page.evaluate("""
         () => {
-            const scrollable = document.querySelector(
-                '[class*="publish"], [class*="modal"], [class*="panel"], main, .l-main'
-            );
-            if (scrollable) scrollable.scrollTop = 0;
-            window.scrollTo(0, 0);
+            const els = [
+                ...document.querySelectorAll('button'),
+                ...document.querySelectorAll('[role="button"]'),
+                ...document.querySelectorAll('a'),
+            ];
+            return els.map(el => ({
+                tag: el.tagName,
+                text: el.textContent.trim().slice(0, 30),
+                href: el.getAttribute('href') || '',
+                role: el.getAttribute('role') || '',
+            })).filter(e => e.text.length > 0);
         }
     """)
-    await page.wait_for_timeout(500)
+    print(f"[DEBUG] クリッカブル要素: {all_clickable}")
 
-    # Playwright で標準クリック（scroll_into_view付き）
+    # 投稿ボタンを探す（button / role=button / a タグ全対応）
     publish_clicked = False
+    keywords = ['投稿する', '公開する', '投稿', '公開']
+
+    # 1) Playwright標準クリック
     for sel in ['button:has-text("投稿する")', 'button:has-text("公開する")',
-                'button:has-text("投稿")', 'button:has-text("公開")']:
+                '[role="button"]:has-text("投稿する")', '[role="button"]:has-text("公開する")',
+                'a:has-text("投稿する")', 'a:has-text("公開する")']:
         try:
-            btn = page.locator(sel).first
-            await btn.scroll_into_view_if_needed(timeout=3000)
-            await btn.click(timeout=3000)
-            print(f"[INFO] 投稿ボタンクリック: {sel}")
+            el = page.locator(sel).first
+            await el.scroll_into_view_if_needed(timeout=2000)
+            await el.click(timeout=2000)
+            print(f"[INFO] 投稿クリック: {sel}")
             publish_clicked = True
             break
         except Exception:
             pass
 
     if not publish_clicked:
-        # JS で全ボタンを探してクリック
+        # 2) JS で全要素を検索してクリック
         r = await page.evaluate("""
-            () => {
-                const btns = Array.from(document.querySelectorAll('button'));
-                const t = btns.find(b => ['投稿する','公開する','投稿','公開'].includes(b.textContent.trim()));
-                if (t) { t.dispatchEvent(new MouseEvent('click', {bubbles:true})); return t.textContent.trim(); }
+            (keywords) => {
+                const els = [
+                    ...document.querySelectorAll('button'),
+                    ...document.querySelectorAll('[role="button"]'),
+                    ...document.querySelectorAll('a'),
+                ];
+                const t = els.find(e => keywords.includes(e.textContent.trim()));
+                if (t) {
+                    t.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+                    return t.textContent.trim();
+                }
                 return null;
             }
-        """)
-        print(f"[INFO] JS click: {r}")
+        """, keywords)
+        print(f"[INFO] JS click result: {r}")
 
     await page.wait_for_load_state("networkidle")
     await page.wait_for_timeout(3000)
