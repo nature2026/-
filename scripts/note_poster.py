@@ -195,7 +195,7 @@ async def _publish(page, price: int):
     print(f"[INFO] 公開後URL: {page.url}")
     await page.wait_for_timeout(2000)
 
-    # 「記事タイプ」タブをクリック（有料/無料と価格設定がここにある）
+    # 「記事タイプ」タブをクリック
     for sel in [
         'button:has-text("記事タイプ")',
         '[role="tab"]:has-text("記事タイプ")',
@@ -211,102 +211,75 @@ async def _publish(page, price: int):
         except Exception:
             pass
 
-    await _save_ss(page, "07a_type_tab")
-
-    # 有料ラジオボタンをオン
-    for sel in [
-        'label:has-text("有料")',
-        'input[type="radio"][value="paid"]',
-        'input[type="radio"][value="charged"]',
-        'button:has-text("有料")',
-        '[data-testid="paid-toggle"]',
-    ]:
-        try:
-            el = page.locator(sel).first
-            await el.wait_for(timeout=3000, state="visible")
-            await el.click()
-            await page.wait_for_timeout(1500)
-            print("[INFO] 有料設定オン")
-            break
-        except Exception:
-            pass
-
-    await _save_ss(page, "07b_paid_on")
-
-    # 全inputタグを調査して価格入力を特定
-    inputs = await page.evaluate("""
-        () => [...document.querySelectorAll('input')].map(i => ({
-            type: i.type,
-            name: i.name || '',
-            id: i.id || '',
-            placeholder: i.placeholder || '',
-            value: i.value || '',
-            class: (i.className || '').toString().slice(0, 80),
-        }))
+    # 有料ラジオをJSで直接選択（React state対応）
+    paid_result = await page.evaluate("""
+        () => {
+            const radio = document.getElementById('paid') ||
+                          document.querySelector('input[name="is_paid"][value="paid"]');
+            if (!radio) return 'not found';
+            radio.checked = true;
+            ['click', 'change', 'input'].forEach(evt =>
+                radio.dispatchEvent(new Event(evt, {bubbles: true, cancelable: true}))
+            );
+            return 'checked: ' + radio.checked;
+        }
     """)
-    print(f"[DEBUG] 全inputタグ: {inputs}")
+    print(f"[INFO] 有料ラジオJS: {paid_result}")
+    await page.wait_for_timeout(1500)
 
-    # 価格入力（id="price"が確定セレクタ）
-    price_set = False
-    for sel in [
-        'input#price',
-        'input[id="price"]',
-        'input[placeholder="300"]',
-        'input[type="number"]',
-        'input[placeholder*="100"]',
-        'input[name="price"]',
-    ]:
-        try:
-            el = page.locator(sel).first
-            await el.wait_for(timeout=5000, state="visible")
-            await el.triple_click()
-            await el.fill(str(price))
-            await page.keyboard.press("Tab")
-            await page.wait_for_timeout(1500)
-            print(f"[INFO] 価格: {price}円 (sel={sel})")
-            price_set = True
-            break
-        except Exception:
-            pass
-    if not price_set:
-        print("[WARN] 価格入力欄が見つかりませんでした")
-
-    await _save_ss(page, "07c_price_set")
+    # 価格入力をJSで直接設定（React native setter経由）
+    price_result = await page.evaluate(f"""
+        () => {{
+            const input = document.getElementById('price') ||
+                          document.querySelector('input[placeholder="300"]');
+            if (!input) return 'not found';
+            const setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, '{price}');
+            ['focus', 'input', 'change', 'blur'].forEach(evt =>
+                input.dispatchEvent(new Event(evt, {{bubbles: true, cancelable: true}}))
+            );
+            return 'value: ' + input.value;
+        }}
+    """)
+    print(f"[INFO] 価格JS設定: {price_result}")
     await page.wait_for_timeout(2000)
 
-    # 全ボタン要素のaria-labelとdisabled状態を調査
-    all_buttons = await page.evaluate("""
-        () => [...document.querySelectorAll('button, [role="button"], a')].map(b => ({
-            text: b.textContent.trim().slice(0, 30),
-            aria: b.getAttribute('aria-label') || '',
-            disabled: b.disabled || b.getAttribute('aria-disabled') || '',
-            type: b.getAttribute('type') || '',
-        })).filter(b => b.text || b.aria)
-    """)
-    print(f"[DEBUG] 全ボタン(aria含む): {all_buttons}")
-
-    # 価格設定後に「投稿する」が出現するまで待つ
+    # さらにPlaywright経由でも入力を試みる（可視チェックなし）
     try:
-        await page.wait_for_selector(
-            'button:has-text("投稿する"), :text("投稿する"), button:has-text("公開する")',
-            timeout=8000,
-        )
-        print("[INFO] 投稿ボタン出現確認")
-    except Exception:
-        print("[WARN] 投稿ボタン未出現（タイムアウト）")
-
-    # ページ下部までスクロール
-    await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
-    await page.wait_for_timeout(1000)
-    await _save_ss(page, "07d_scrolled")
-
-    # 可視テキストをダンプ（先頭＋末尾で投稿ボタンを特定）
-    try:
-        visible_text = await page.inner_text("body")
-        print(f"[DEBUG] 可視テキスト先頭: {visible_text[:1500]}")
-        print(f"[DEBUG] 可視テキスト末尾: {visible_text[-1500:]}")
+        price_el = page.locator('input#price, input[placeholder="300"]').first
+        await price_el.click(force=True)
+        await price_el.select_text()
+        await page.keyboard.type(str(price))
+        await page.keyboard.press("Tab")
+        await page.wait_for_timeout(1000)
+        print(f"[INFO] 価格keyboard入力: {price}円")
     except Exception as e:
-        print(f"[DEBUG] テキスト取得失敗: {e}")
+        print(f"[WARN] keyboard入力失敗: {e}")
+
+    await _save_ss(page, "07b_settings_done")
+    await page.wait_for_timeout(2000)
+
+    # ドロワー内の全スクロール可能コンテナを最下部へスクロール
+    scrolled = await page.evaluate("""
+        () => {
+            const els = [...document.querySelectorAll('*')].filter(el => {
+                const s = window.getComputedStyle(el);
+                return (s.overflowY === 'scroll' || s.overflowY === 'auto') &&
+                       el.scrollHeight > el.clientHeight + 10;
+            });
+            els.forEach(el => { el.scrollTop = el.scrollHeight; });
+            window.scrollTo(0, document.body.scrollHeight);
+            return els.length;
+        }
+    """)
+    print(f"[INFO] スクロール済みコンテナ数: {scrolled}")
+    await page.wait_for_timeout(1500)
+    await _save_ss(page, "07c_drawer_scrolled")
+
+    # 全テキスト（非可視含む）をtextContentで取得
+    full_text = await page.evaluate("() => document.body.textContent.slice(0, 5000)")
+    print(f"[DEBUG] 全textContent: {full_text}")
 
     # TreeWalkerでテキストノードを直接探索（要素フィルタなし）
     text_nodes = await page.evaluate("""
