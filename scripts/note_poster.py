@@ -195,23 +195,23 @@ async def _publish(page, price: int):
     print(f"[INFO] 公開後URL: {page.url}")
     await page.wait_for_timeout(2000)
 
-    # 「有料エリア設定」タブをクリック（価格入力を表示させる）
+    # 「記事タイプ」タブをクリック（有料/無料と価格設定がここにある）
     for sel in [
-        'button:has-text("有料エリア設定")',
-        '[role="tab"]:has-text("有料エリア設定")',
-        ':text-is("有料エリア設定")',
+        'button:has-text("記事タイプ")',
+        '[role="tab"]:has-text("記事タイプ")',
+        ':text-is("記事タイプ")',
     ]:
         try:
             el = page.locator(sel).first
             await el.wait_for(timeout=4000, state="visible")
             await el.click()
             await page.wait_for_timeout(1500)
-            print(f"[INFO] 有料エリア設定タブ: {sel}")
+            print(f"[INFO] 記事タイプタブ: {sel}")
             break
         except Exception:
             pass
 
-    await _save_ss(page, "07a_paid_tab")
+    await _save_ss(page, "07a_type_tab")
 
     # 有料ラジオボタンをオン
     for sel in [
@@ -233,22 +233,39 @@ async def _publish(page, price: int):
 
     await _save_ss(page, "07b_paid_on")
 
+    # 全inputタグを調査して価格入力を特定
+    inputs = await page.evaluate("""
+        () => [...document.querySelectorAll('input')].map(i => ({
+            type: i.type,
+            name: i.name || '',
+            id: i.id || '',
+            placeholder: i.placeholder || '',
+            value: i.value || '',
+            class: (i.className || '').toString().slice(0, 80),
+        }))
+    """)
+    print(f"[DEBUG] 全inputタグ: {inputs}")
+
     # 価格入力（有料設定後に入力欄が出現するまで待つ）
     price_set = False
     for sel in [
         'input[type="number"]',
+        'input[placeholder*="100〜"]',
         'input[placeholder*="100"]',
         'input[placeholder*="価格"]',
         'input[placeholder*="金額"]',
         'input[name="price"]',
+        'input[id*="price"]',
+        'input[class*="price"]',
     ]:
         try:
             el = page.locator(sel).first
             await el.wait_for(timeout=5000, state="visible")
             await el.triple_click()
             await el.fill(str(price))
-            await page.wait_for_timeout(1000)
-            print(f"[INFO] 価格: {price}円")
+            await page.keyboard.press("Tab")
+            await page.wait_for_timeout(1500)
+            print(f"[INFO] 価格: {price}円 (sel={sel})")
             price_set = True
             break
         except Exception:
@@ -257,7 +274,7 @@ async def _publish(page, price: int):
         print("[WARN] 価格入力欄が見つかりませんでした")
 
     await _save_ss(page, "07c_price_set")
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(3000)
 
     # 価格設定後に「投稿する」が出現するまで待つ
     try:
@@ -274,10 +291,11 @@ async def _publish(page, price: int):
     await page.wait_for_timeout(1000)
     await _save_ss(page, "07d_scrolled")
 
-    # 可視テキスト末尾2000字をダンプ（投稿ボタン付近を確認）
+    # 可視テキストをダンプ（先頭＋末尾で投稿ボタンを特定）
     try:
         visible_text = await page.inner_text("body")
-        print(f"[DEBUG] 可視テキスト末尾: {visible_text[-2000:]}")
+        print(f"[DEBUG] 可視テキスト先頭: {visible_text[:1500]}")
+        print(f"[DEBUG] 可視テキスト末尾: {visible_text[-1500:]}")
     except Exception as e:
         print(f"[DEBUG] テキスト取得失敗: {e}")
 
