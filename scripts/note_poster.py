@@ -246,17 +246,15 @@ async def _publish(page, price: int):
     """)
     print(f"[DEBUG] 全inputタグ: {inputs}")
 
-    # 価格入力（有料設定後に入力欄が出現するまで待つ）
+    # 価格入力（id="price"が確定セレクタ）
     price_set = False
     for sel in [
+        'input#price',
+        'input[id="price"]',
+        'input[placeholder="300"]',
         'input[type="number"]',
-        'input[placeholder*="100〜"]',
         'input[placeholder*="100"]',
-        'input[placeholder*="価格"]',
-        'input[placeholder*="金額"]',
         'input[name="price"]',
-        'input[id*="price"]',
-        'input[class*="price"]',
     ]:
         try:
             el = page.locator(sel).first
@@ -274,13 +272,24 @@ async def _publish(page, price: int):
         print("[WARN] 価格入力欄が見つかりませんでした")
 
     await _save_ss(page, "07c_price_set")
-    await page.wait_for_timeout(3000)
+    await page.wait_for_timeout(2000)
+
+    # 全ボタン要素のaria-labelとdisabled状態を調査
+    all_buttons = await page.evaluate("""
+        () => [...document.querySelectorAll('button, [role="button"], a')].map(b => ({
+            text: b.textContent.trim().slice(0, 30),
+            aria: b.getAttribute('aria-label') || '',
+            disabled: b.disabled || b.getAttribute('aria-disabled') || '',
+            type: b.getAttribute('type') || '',
+        })).filter(b => b.text || b.aria)
+    """)
+    print(f"[DEBUG] 全ボタン(aria含む): {all_buttons}")
 
     # 価格設定後に「投稿する」が出現するまで待つ
     try:
         await page.wait_for_selector(
             'button:has-text("投稿する"), :text("投稿する"), button:has-text("公開する")',
-            timeout=10000,
+            timeout=8000,
         )
         print("[INFO] 投稿ボタン出現確認")
     except Exception:
