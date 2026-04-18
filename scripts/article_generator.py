@@ -21,7 +21,7 @@ def _build_prompt(genre: dict, themes: list[str], today: str) -> str:
 # 記事の要件
 - ジャンル: {genre['name']}
 - 価格帯: {genre['price']}円の有料記事
-- 文字数: 合計3000〜5000文字
+- 文字数: 合計5000〜8000文字（必ず5000文字以上書くこと）
 - 文体: 話しかけるような親しみやすい文体（読者は20〜40代）
 
 # 必須の記事構成（この順番で書くこと）
@@ -71,7 +71,7 @@ def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> di
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
-                max_tokens=4096,
+                max_tokens=8000,
             )
             full_md = resp.choices[0].message.content
             print(f"[INFO] 記事生成完了 ({len(full_md)}文字)")
@@ -98,8 +98,12 @@ def _parse_article(full_md: str) -> dict:
     PAID_MARKER = "＝＝＝ ここから有料"
     if PAID_MARKER in full_md:
         idx = full_md.index(PAID_MARKER)
+        # マーカー行の終わりまでスキップ（重複防止）
+        end_of_marker = full_md.find('\n', idx)
+        if end_of_marker == -1:
+            end_of_marker = len(full_md)
         free_part = full_md[:idx].strip()
-        paid_part = full_md[idx:].strip()
+        paid_part = full_md[end_of_marker:].strip()
     else:
         mid = int(len(full_md) * FREE_RATIO)
         split_at = full_md.rfind("\n\n", 0, mid) or mid
