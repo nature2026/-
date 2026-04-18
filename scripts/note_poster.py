@@ -221,37 +221,48 @@ async def _publish(page, price: int):
             pass
 
     await _save_ss(page, "07b_price_set")
+    await page.wait_for_timeout(2000)
 
-    # 全クリッカブル要素をログ出力（button + role=button + a タグ）
-    all_clickable = await page.evaluate("""
+    # 全要素から「投稿」「公開」を含む短テキスト要素を検索（タグ種類問わず）
+    found = await page.evaluate("""
         () => {
-            const els = [
-                ...document.querySelectorAll('button'),
-                ...document.querySelectorAll('[role="button"]'),
-                ...document.querySelectorAll('a'),
-            ];
-            return els.map(el => ({
-                tag: el.tagName,
-                text: el.textContent.trim().slice(0, 30),
-                href: el.getAttribute('href') || '',
-                role: el.getAttribute('role') || '',
-            })).filter(e => e.text.length > 0);
+            const results = [];
+            for (const el of document.body.querySelectorAll('*')) {
+                if (el.children.length <= 2) {
+                    const text = el.textContent.trim();
+                    if (text.length > 0 && text.length <= 20) {
+                        results.push({
+                            tag: el.tagName,
+                            text: text,
+                            role: el.getAttribute('role') || '',
+                            type: el.getAttribute('type') || '',
+                            class: (el.className || '').toString().slice(0, 60),
+                        });
+                    }
+                }
+            }
+            return results;
         }
     """)
-    print(f"[DEBUG] クリッカブル要素: {all_clickable}")
+    post_candidates = [e for e in found if '投稿' in e['text'] or '公開' in e['text']]
+    print(f"[DEBUG] 投稿/公開候補要素: {post_candidates}")
+    print(f"[DEBUG] 全短テキスト要素数: {len(found)}")
 
-    # 投稿ボタンを探す（button / role=button / a タグ全対応）
+    # 投稿ボタンクリック — タグ種類問わず全探索
     publish_clicked = False
-    keywords = ['投稿する', '公開する', '投稿', '公開']
 
-    # 1) Playwright標準クリック
-    for sel in ['button:has-text("投稿する")', 'button:has-text("公開する")',
-                '[role="button"]:has-text("投稿する")', '[role="button"]:has-text("公開する")',
-                'a:has-text("投稿する")', 'a:has-text("公開する")']:
+    # 1) Playwright標準クリック（全タグ対応）
+    for sel in [
+        'button:has-text("投稿する")', 'button:has-text("公開する")',
+        '[role="button"]:has-text("投稿する")', '[role="button"]:has-text("公開する")',
+        'a:has-text("投稿する")', 'a:has-text("公開する")',
+        ':text("投稿する")', ':text("公開する")',
+        '[type="submit"]',
+    ]:
         try:
             el = page.locator(sel).first
             await el.scroll_into_view_if_needed(timeout=2000)
-            await el.click(timeout=2000)
+            await el.click(timeout=2000, force=True)
             print(f"[INFO] 投稿クリック: {sel}")
             publish_clicked = True
             break
@@ -259,22 +270,20 @@ async def _publish(page, price: int):
             pass
 
     if not publish_clicked:
-        # 2) JS で全要素を検索してクリック
+        # 2) JS で全タグを検索してクリック（部分一致・完全一致）
         r = await page.evaluate("""
-            (keywords) => {
-                const els = [
-                    ...document.querySelectorAll('button'),
-                    ...document.querySelectorAll('[role="button"]'),
-                    ...document.querySelectorAll('a'),
-                ];
-                const t = els.find(e => keywords.includes(e.textContent.trim()));
-                if (t) {
-                    t.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-                    return t.textContent.trim();
+            () => {
+                const keywords = ['投稿する', '公開する', '投稿', '公開'];
+                for (const el of document.body.querySelectorAll('*')) {
+                    const text = el.textContent.trim();
+                    if (keywords.includes(text) && el.children.length <= 2) {
+                        el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+                        return text + ' [' + el.tagName + ']';
+                    }
                 }
                 return null;
             }
-        """, keywords)
+        """)
         print(f"[INFO] JS click result: {r}")
 
     await page.wait_for_load_state("networkidle")
