@@ -8,7 +8,6 @@ import os
 import json
 import re
 import asyncio
-import tempfile
 import requests as req_lib
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -44,56 +43,44 @@ async def _login_with_cookies(context, cookies_json: str):
     print(f"[INFO] クッキー {len(pw_cookies)} 件をセット")
 
 
-def _upload_cover_api(note_key: str, image_url: str, cookie_dict: dict) -> bool:
-    """カバー画像をnote.com APIで直接アップロードする"""
+async def _upload_cover_via_context(context, note_key: str, image_url: str) -> bool:
+    """Playwright contextのfetch APIでカバー画像をアップロード（ブラウザセッション使用）"""
     try:
         img_resp = req_lib.get(image_url, timeout=15)
         img_resp.raise_for_status()
+        img_bytes = img_resp.content
     except Exception as e:
         print(f"[WARN] カバー画像DL失敗: {e}")
         return False
 
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        f.write(img_resp.content)
-        tmp_path = f.name
-
-    session = req_lib.Session()
-    for name, value in cookie_dict.items():
-        session.cookies.set(name, value, domain=".note.com")
-
-    # note.comのCSRFトークンをクッキーから取得
-    csrf = cookie_dict.get("_note_csrf", cookie_dict.get("csrf_token", ""))
-
-    endpoints = [
+    for url in [
         f"https://note.com/api/v1/text_notes/{note_key}/eyecatch",
         f"https://note.com/api/v2/text_notes/{note_key}/eyecatch",
-    ]
-    headers = {
-        "Referer": f"https://editor.note.com/notes/{note_key}/edit",
-        "X-Note-Csrf-Token": csrf,
-        "X-Csrf-Token": csrf,
-    }
-
-    for url in endpoints:
-        try:
-            with open(tmp_path, "rb") as f:
-                resp = session.post(
+    ]:
+        for field in ["image", "file"]:
+            try:
+                response = await context.request.fetch(
                     url,
-                    files={"image": ("cover.jpg", f, "image/jpeg")},
-                    headers=headers,
-                    timeout=20,
+                    method="POST",
+                    headers={
+                        "Referer": f"https://editor.note.com/notes/{note_key}/edit",
+                        "Origin": "https://editor.note.com",
+                    },
+                    multipart={
+                        field: {
+                            "name": "cover.jpg",
+                            "mimeType": "image/jpeg",
+                            "buffer": img_bytes,
+                        }
+                    },
                 )
-            print(f"[INFO] カバー画像API {resp.status_code}: {resp.text[:200]}")
-            if resp.ok:
-                os.unlink(tmp_path)
-                return True
-        except Exception as e:
-            print(f"[WARN] カバー画像API失敗 ({url}): {e}")
+                body = await response.text()
+                print(f"[INFO] カバー画像API ({field}) {response.status}: {body[:200]}")
+                if response.ok:
+                    return True
+            except Exception as e:
+                print(f"[WARN] カバー画像fetch失敗 ({url} {field}): {e}")
 
-    try:
-        os.unlink(tmp_path)
-    except Exception:
-        pass
     return False
 
 
@@ -375,14 +362,10 @@ async def post(article: dict, price: int) -> str:
             note_key = note_key_match.group(1) if note_key_match else None
             print(f"[INFO] ノートID: {note_key} (URL: {page.url})")
 
-            # カバー画像をAPIでアップロード
+            # カバー画像をPlaywright contextのfetch APIでアップロード
             cover = article.get("cover_image")
             if cover and cover.get("url") and note_key and note_key != "new":
-                pw_cookies = await context.cookies()
-                cookie_dict = {c["name"]: c["value"] for c in pw_cookies}
-                ok = await asyncio.to_thread(
-                    _upload_cover_api, note_key, cover["url"], cookie_dict
-                )
+                ok = await _upload_cover_via_context(context, note_key, cover["url"])
                 if ok:
                     print("[INFO] カバー画像アップロード完了")
                 else:
