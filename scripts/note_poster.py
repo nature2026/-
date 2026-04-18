@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 note.com 自動投稿: クッキー認証 + Playwright でブラウザを操作して記事を公開する。
-カバー画像は自動保存後にAPIで直接アップロードする。
+カバー画像は API(multipart/PUT) → UIファイル入力 の順で試行する。
 """
 
 import os
 import json
 import re
 import asyncio
+import tempfile
 import requests as req_lib
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -43,8 +44,8 @@ async def _login_with_cookies(context, cookies_json: str):
     print(f"[INFO] クッキー {len(pw_cookies)} 件をセット")
 
 
-async def _upload_cover_via_context(context, note_key: str, image_url: str) -> bool:
-    """Playwright contextのfetch APIでカバー画像をアップロード（ブラウザセッション使用）"""
+async def _upload_cover_via_context(context, page, note_key: str, image_url: str) -> bool:
+    """カバー画像アップロード: API方式(multipart/PUT) → UIファイル入力 の順で試行"""
     try:
         img_resp = req_lib.get(image_url, timeout=15)
         img_resp.raise_for_status()
@@ -53,19 +54,23 @@ async def _upload_cover_via_context(context, note_key: str, image_url: str) -> b
         print(f"[WARN] カバー画像DL失敗: {e}")
         return False
 
+    edit_referer = f"https://editor.note.com/notes/{note_key}/edit"
+    common_headers = {
+        "Referer": edit_referer,
+        "Origin": "https://editor.note.com",
+    }
+
+    # 方式1: multipart ファイルアップロード
     for url in [
         f"https://note.com/api/v1/text_notes/{note_key}/eyecatch",
         f"https://note.com/api/v2/text_notes/{note_key}/eyecatch",
     ]:
-        for field in ["image", "file"]:
+        for field in ["image", "file", "eyecatch"]:
             try:
                 response = await context.request.fetch(
                     url,
                     method="POST",
-                    headers={
-                        "Referer": f"https://editor.note.com/notes/{note_key}/edit",
-                        "Origin": "https://editor.note.com",
-                    },
+                    headers=common_headers,
                     multipart={
                         field: {
                             "name": "cover.jpg",
@@ -75,11 +80,78 @@ async def _upload_cover_via_context(context, note_key: str, image_url: str) -> b
                     },
                 )
                 body = await response.text()
-                print(f"[INFO] カバー画像API ({field}) {response.status}: {body[:200]}")
+                print(f"[INFO] cover multipart ({field}) {response.status}: {body[:200]}")
                 if response.ok:
                     return True
             except Exception as e:
-                print(f"[WARN] カバー画像fetch失敗 ({url} {field}): {e}")
+                print(f"[WARN] cover multipart ({field}): {e}")
+
+    # 方式2: PUT /api/v1/text_notes/{key} に eyecatch URLを直接指定
+    for put_url in [
+        f"https://note.com/api/v1/text_notes/{note_key}",
+        f"https://note.com/api/v2/text_notes/{note_key}",
+    ]:
+        for body_data in [
+            json.dumps({"eyecatch_image_object": {"url": image_url}}),
+            json.dumps({"eyecatch": image_url}),
+            json.dumps({"cover_image": image_url}),
+        ]:
+            try:
+                response = await context.request.fetch(
+                    put_url,
+                    method="PUT",
+                    headers={**common_headers, "Content-Type": "application/json"},
+                    data=body_data,
+                )
+                body = await response.text()
+                print(f"[INFO] cover PUT {response.status}: {body[:200]}")
+                if response.ok:
+                    return True
+            except Exception as e:
+                print(f"[WARN] cover PUT ({put_url}): {e}")
+
+    # 方式3: UIのfile input経由（エディタのカバー画像ボタン）
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(img_bytes)
+            tmp_path = tmp.name
+
+        for btn_sel in [
+            'button:has-text("カバー画像")',
+            'button:has-text("カバー")',
+            '[aria-label*="カバー"]',
+            '[aria-label*="cover"]',
+            '[data-testid*="eyecatch"]',
+            '[data-testid*="cover"]',
+            '.o-noteEditHeader__coverImage button',
+        ]:
+            try:
+                btn = page.locator(btn_sel).first
+                await btn.wait_for(timeout=3000, state="visible")
+                async with page.expect_file_chooser(timeout=4000) as fc_info:
+                    await btn.click()
+                file_chooser = await fc_info.value
+                await file_chooser.set_files(tmp_path)
+                await page.wait_for_timeout(3000)
+                print(f"[INFO] cover UI upload via {btn_sel}")
+                return True
+            except Exception:
+                pass
+
+        for input_sel in [
+            'input[type="file"][accept*="image"]',
+            'input[type="file"]',
+        ]:
+            try:
+                el = page.locator(input_sel).first
+                await el.set_input_files(tmp_path)
+                await page.wait_for_timeout(3000)
+                print(f"[INFO] cover direct file input: {input_sel}")
+                return True
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[WARN] cover UI方式失敗: {e}")
 
     return False
 
@@ -163,6 +235,7 @@ async def _fill_body(page, free_part: str, paid_part: str):
                 }""",
                 full_content,
             )
+            await _save_ss(page, "05_body_filled")
             print("[INFO] 本文入力完了")
             return
         except Exception:
@@ -221,12 +294,15 @@ async def _publish(page, price: int):
     print(f"[INFO] 有料ラジオ: {paid_result}")
     await page.wait_for_timeout(1500)
 
-    # 価格をReact native setter経由で設定
+    # 価格をReact native setter + execCommand で設定（overflow内でも確実に動作）
     price_result = await page.evaluate(f"""
         () => {{
             const input = document.getElementById('price') ||
                           document.querySelector('input[placeholder="300"]');
             if (!input) return 'not found';
+            input.focus();
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, '{price}');
             const setter = Object.getOwnPropertyDescriptor(
                 window.HTMLInputElement.prototype, 'value').set;
             setter.call(input, '{price}');
@@ -236,21 +312,7 @@ async def _publish(page, price: int):
             return 'value: ' + input.value;
         }}
     """)
-    print(f"[INFO] 価格JS: {price_result}")
-    await page.wait_for_timeout(1500)
-
-    # Playwrightからも価格入力（force）
-    try:
-        price_el = page.locator('input#price, input[placeholder="300"]').first
-        await price_el.click(force=True)
-        await price_el.select_text()
-        await page.keyboard.type(str(price))
-        await page.keyboard.press("Tab")
-        await page.wait_for_timeout(1000)
-        print(f"[INFO] 価格keyboard: {price}円")
-    except Exception as e:
-        print(f"[WARN] keyboard入力: {e}")
-
+    print(f"[INFO] 価格設定: {price_result}")
     await page.wait_for_timeout(1000)
 
     # ドロワー内全スクロール可能コンテナを最下部へ（投稿ボタンを表示）
@@ -362,10 +424,10 @@ async def post(article: dict, price: int) -> str:
             note_key = note_key_match.group(1) if note_key_match else None
             print(f"[INFO] ノートID: {note_key} (URL: {page.url})")
 
-            # カバー画像をPlaywright contextのfetch APIでアップロード
+            # カバー画像アップロード
             cover = article.get("cover_image")
             if cover and cover.get("url") and note_key and note_key != "new":
-                ok = await _upload_cover_via_context(context, note_key, cover["url"])
+                ok = await _upload_cover_via_context(context, page, note_key, cover["url"])
                 if ok:
                     print("[INFO] カバー画像アップロード完了")
                 else:
