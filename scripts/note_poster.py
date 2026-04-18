@@ -225,8 +225,15 @@ async def _publish(page, price: int):
 
     # ページ下部までスクロールして遅延レンダリングを待つ
     await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
-    await page.wait_for_timeout(1000)
+    await page.wait_for_timeout(2000)
     await _save_ss(page, "07c_scrolled")
+
+    # 全可視テキストをダンプ（ボタン文言を特定するため）
+    try:
+        visible_text = await page.inner_text("body")
+        print(f"[DEBUG] 全可視テキスト: {visible_text[:4000]}")
+    except Exception as e:
+        print(f"[DEBUG] テキスト取得失敗: {e}")
 
     # TreeWalkerでテキストノードを直接探索（要素フィルタなし）
     text_nodes = await page.evaluate("""
