@@ -45,7 +45,7 @@ async def _login_with_cookies(context, cookies_json: str):
 
 
 async def _upload_cover_via_context(context, page, note_key: str, image_url: str) -> bool:
-    """カバー画像アップロード: API方式(multipart/PUT) → UIファイル入力 の順で試行"""
+    """カバー画像アップロード: CSRF取得 → API(multipart/PUT) → UIファイル入力 の順で試行"""
     try:
         img_resp = req_lib.get(image_url, timeout=15)
         img_resp.raise_for_status()
@@ -54,13 +54,80 @@ async def _upload_cover_via_context(context, page, note_key: str, image_url: str
         print(f"[WARN] カバー画像DL失敗: {e}")
         return False
 
+    # CSRFトークン取得
+    csrf_token = await page.evaluate("""
+        () => {
+            const m = document.querySelector('meta[name="csrf-token"]');
+            if (m) return m.getAttribute('content');
+            const c = document.cookie.split(';').find(c => c.trim().startsWith('_csrf'));
+            return c ? c.split('=')[1] : null;
+        }
+    """)
+    print(f"[INFO] CSRF token: {csrf_token and csrf_token[:20]}")
+
     edit_referer = f"https://editor.note.com/notes/{note_key}/edit"
     common_headers = {
         "Referer": edit_referer,
         "Origin": "https://editor.note.com",
     }
+    if csrf_token:
+        common_headers["X-CSRF-Token"] = csrf_token
+        common_headers["X-Requested-With"] = "XMLHttpRequest"
 
-    # 方式1: multipart ファイルアップロード
+    # 方式1: /api/v1/files にアップロード → eyecatch として設定
+    for upload_url in [
+        "https://note.com/api/v1/files",
+        "https://note.com/api/v2/files",
+    ]:
+        for field in ["file", "image"]:
+            try:
+                response = await context.request.fetch(
+                    upload_url,
+                    method="POST",
+                    headers=common_headers,
+                    multipart={
+                        field: {
+                            "name": "cover.jpg",
+                            "mimeType": "image/jpeg",
+                            "buffer": img_bytes,
+                        }
+                    },
+                )
+                body = await response.text()
+                print(f"[INFO] file upload ({field}) {response.status}: {body[:300]}")
+                if response.ok:
+                    try:
+                        data = json.loads(body)
+                        file_key = (
+                            data.get("data", {}).get("key") or
+                            data.get("key") or
+                            data.get("data", {}).get("id") or
+                            data.get("id")
+                        )
+                        if file_key:
+                            for patch_url in [
+                                f"https://note.com/api/v1/text_notes/{note_key}",
+                                f"https://note.com/api/v2/text_notes/{note_key}",
+                            ]:
+                                for body_data in [
+                                    json.dumps({"eyecatch_image_key": file_key}),
+                                    json.dumps({"eyecatch_image_object": {"key": file_key}}),
+                                ]:
+                                    pr = await context.request.fetch(
+                                        patch_url, method="PUT",
+                                        headers={**common_headers, "Content-Type": "application/json"},
+                                        data=body_data,
+                                    )
+                                    print(f"[INFO] eyecatch set {pr.status}: {(await pr.text())[:200]}")
+                                    if pr.ok:
+                                        return True
+                    except Exception as e:
+                        print(f"[WARN] eyecatch set via file key: {e}")
+                    return True
+            except Exception as e:
+                print(f"[WARN] file upload ({field}): {e}")
+
+    # 方式2: /eyecatch エンドポイントに直接 multipart
     for url in [
         f"https://note.com/api/v1/text_notes/{note_key}/eyecatch",
         f"https://note.com/api/v2/text_notes/{note_key}/eyecatch",
@@ -116,36 +183,65 @@ async def _upload_cover_via_context(context, page, note_key: str, image_url: str
             tmp.write(img_bytes)
             tmp_path = tmp.name
 
+        # ページ上の全ボタンをログ出力（デバッグ用）
+        all_btns = await page.evaluate("""
+            () => [...document.querySelectorAll('button, [role="button"], label')].map(el => ({
+                tag: el.tagName,
+                text: el.textContent.trim().slice(0, 30),
+                aria: el.getAttribute('aria-label') || '',
+                testid: el.getAttribute('data-testid') || '',
+                cls: (el.className || '').toString().slice(0, 50),
+            }))
+        """)
+        cover_related = [b for b in all_btns if any(
+            kw in (b['text'] + b['aria'] + b['testid'] + b['cls']).lower()
+            for kw in ['cover', 'eyecatch', 'カバー', '画像', 'image', 'thumb']
+        )]
+        print(f"[DEBUG] カバー関連UI要素: {cover_related}")
+
         for btn_sel in [
+            'button:has-text("カバー画像を設定")',
             'button:has-text("カバー画像")',
             'button:has-text("カバー")',
+            'button:has-text("サムネイル")',
             '[aria-label*="カバー"]',
             '[aria-label*="cover"]',
+            '[aria-label*="eyecatch"]',
             '[data-testid*="eyecatch"]',
             '[data-testid*="cover"]',
+            '[data-testid*="thumbnail"]',
             '.o-noteEditHeader__coverImage button',
+            '.p-note-editor__cover button',
+            'label[for*="cover"]',
+            'label[for*="eyecatch"]',
         ]:
             try:
                 btn = page.locator(btn_sel).first
-                await btn.wait_for(timeout=3000, state="visible")
-                async with page.expect_file_chooser(timeout=4000) as fc_info:
+                await btn.wait_for(timeout=2000, state="visible")
+                async with page.expect_file_chooser(timeout=5000) as fc_info:
                     await btn.click()
                 file_chooser = await fc_info.value
                 await file_chooser.set_files(tmp_path)
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(4000)
                 print(f"[INFO] cover UI upload via {btn_sel}")
                 return True
             except Exception:
                 pass
 
+        # file input に直接 set_files（hidden input でも動く）
         for input_sel in [
             'input[type="file"][accept*="image"]',
+            'input[type="file"][name*="cover"]',
+            'input[type="file"][name*="eyecatch"]',
             'input[type="file"]',
         ]:
             try:
                 el = page.locator(input_sel).first
+                count = await el.count()
+                if count == 0:
+                    continue
                 await el.set_input_files(tmp_path)
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(4000)
                 print(f"[INFO] cover direct file input: {input_sel}")
                 return True
             except Exception:
