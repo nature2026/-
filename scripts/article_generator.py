@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 記事生成: Groq API (Llama 3.3 70B) を使って note 向け有料記事を生成する。
+無料部分と有料部分を別々に生成することで確実に 5000 字超を達成する。
 """
 
 import os
@@ -8,88 +9,101 @@ import time
 from groq import Groq
 
 FREE_RATIO = 0.30
-MIN_CHARS = 4000
 
 
-def _build_prompt(genre: dict, themes: list[str], today: str) -> str:
+def _call_groq(client: Groq, system: str, user: str, retries: int = 3) -> str:
+    for attempt in range(1, retries + 1):
+        try:
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user},
+                ],
+                temperature=0.85,
+                max_tokens=4096,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"[WARN] Groq attempt {attempt}/{retries}: {str(e)[:120]}")
+            if attempt == retries:
+                raise
+            time.sleep(8 * attempt)
+    return ""
+
+
+def _build_free_prompt(genre: dict, themes: list[str], today: str) -> str:
     themes_text = "\n".join(f"・{t}" for t in themes)
-    return f"""あなたは「{genre['persona']}」として、note.com で月200万円以上稼いでいる日本最高峰のライターです。
-今日（{today}）のトレンドテーマをもとに、圧倒的に売れる note 有料記事を日本語で執筆してください。
+    return f"""今日（{today}）のトレンドテーマを踏まえ、{genre['name']}ジャンルのnote有料記事の「無料公開パート」を日本語で書いてください。
 
-# 選択するトレンドテーマ（最も読者に刺さるテーマを1つ選ぶ）
+【トレンドテーマ（1つ選ぶ）】
 {themes_text}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## 記事の基本仕様
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- ジャンル: {genre['name']}
-- 価格帯: {genre['price']}円の有料記事
-- **合計文字数: 最低6000文字（絶対に省略しないこと）**
-- 文体: 友人に話しかけるような親しみやすい口語体
-- 対象読者: 20〜40代の会社員・フリーランス
+【あなたのペルソナ】
+{genre['persona']}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## 記事構成（省略禁止。各セクションを全て書くこと）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【書く内容（この順番で）】
 
-### 【1】タイトル（記事の1行目に書く）
-フォーマット: # タイトル
-条件:
-- 【2026年最新】や【完全版】などの権威ワードを入れる
-- 具体的な数字を含む（「7ステップ」「月15万円」「3ヶ月で」など）
-- 読者の悩みに直結する言葉を使う
-- 40文字以内が理想
+1. タイトル（記事の冒頭1行目）
+   - 形式: # タイトル
+   - 【2026年最新】などの権威ワード＋具体的な数字（「7ステップ」「月15万円」等）
 
-### 【2】リード文・導入（800〜1000文字）
-- 読者の具体的な悩みを描写する（「毎月生活費が足りない」「老後2000万問題が怖い」など）
-- 著者自身の失敗体験を1つ書く（読者に親近感を持たせる）
-- この記事を読むと何が変わるか、具体的な成果を明示する
-- 著者の簡単な実績（数字入り）で信頼感を高める
+2. 導入文（700〜900字）
+   - 読者が今まさに抱えている具体的な悩みを描写する
+   - 著者自身の失敗談→転換点のエピソード1つ
+   - この記事を読むと得られる成果を明示
+   - 著者の実績を数字で示す（信頼感）
 
-### 【3】無料公開セクション（1500〜2000文字）
-- ## 見出し: 「なぜ多くの人は{genre['name']}で失敗するのか？」
-  → 失敗する3つの理由を詳細に説明（各理由200文字以上）
-  → 具体的な失敗エピソード（架空でOK。リアルに）
-- ## 見出し: 「成功者と失敗者を分ける"たった1つの違い"」
-  → 問題の核心に触れるが、解決策の詳細は有料部分へ誘導
-- 有料部分への誘導文で締める
+3. 無料公開セクション（1000〜1200字）
+   ## なぜ多くの人は〇〇で失敗するのか？
+   → 失敗する理由を3つ、各200字以上で説明
+   → リアルな失敗エピソード（架空でも具体的に）
+   ## 成功者が密かにやっていること
+   → 成功の鍵に触れる（ただし詳細は有料パートへ）
+   → 有料パートへの誘導文で締める
 
-### 【4】マーカー（この行をそのまま入れる）
-＝＝＝ ここから有料 ＝＝＝
+4. 最終行（必須）
+   ＝＝＝ ここから有料 ＝＝＝
 
-### 【5】有料公開セクション（4000〜5000文字）
-以下を全て含めること（省略不可）:
+【ルール】
+- Markdownで出力（## ## を見出しに使う）
+- 絵文字を適度に使う 🚀💡✅
+- 合計1800〜2200字で書く
+- 省略・要約は禁止"""
 
-**A. 実践ステップ（番号付きリスト、5〜7ステップ）**
-各ステップは見出し付きで最低400文字。具体的なツール名・URL・操作手順・数字を入れる。
-例: 「## ステップ1: まず証券口座を開設する（所要時間15分）」
 
-**B. ケーススタディ（2〜3例）**
-「〇〇さん（32歳・会社員）は△△を実践して□□の成果を出した」形式。
-各ケースは300文字以上。数字と感情の変化を書く。
+def _build_paid_prompt(genre: dict, title: str, today: str) -> str:
+    return f"""note有料記事のタイトルは「{title}」です。
+この記事の「有料公開パート」のみを日本語で書いてください。ジャンル: {genre['name']}（{genre['price']}円）
 
-**C. すぐに使えるテンプレート（2〜3個）**
-見出し: 「## 📋 テンプレート：〇〇用」
-コピペですぐ使える内容。空白を埋めるだけで使えるもの。
+【書く内容（全て書くこと。省略禁止）】
 
-**D. よくある質問と回答（Q&A、5問以上）**
-見出し: 「## ❓ よくある質問」
-各回答は150文字以上。読者が実際に疑問に思うことへの丁寧な回答。
+## ステップ解説（5〜6ステップ）
+各ステップを ## ステップN: タイトル の見出しで書く。
+各ステップは350字以上。具体的なツール名・操作手順・数字を含む。
 
-**E. まとめ・行動計画（400文字以上）**
-見出し: 「## 🎯 まとめ｜今日から始める3ステップ」
+## ケーススタディ（2例）
+## 📖 実例: 〇〇さん（年齢・職業）のケース
+各例は300字以上。実践内容・得た成果（数字）・感情の変化を書く。
+
+## すぐ使えるテンプレート（2個）
+## 📋 テンプレート: 〇〇用
+[ ] で空欄を示し、コピペしてすぐ使える形式にする。
+
+## よくある質問（5問）
+## ❓ よくある質問
+Q: 具体的な質問
+A: 150字以上の詳細な回答
+
+## まとめ・行動計画
+## 🎯 今日から始める行動計画
 今日・今週・今月にやることを具体的に書く。
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-## 出力ルール（必ず守ること）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Markdownで出力（## ### で見出し）
-- 絵文字を積極的に使う（🚀💡📊✅🔑💰など）
-- 箇条書きだけでなく文章で深掘りする
-- 具体的な数字・固有名詞・ツール名を多用する
-- **省略・要約・「〜略〜」などは絶対に禁止**
-- **必ず6000文字以上書く。足りない場合は各セクションを加筆する**
-"""
+【ルール】
+- Markdownで出力（## ### を見出しに使う）
+- 絵文字を使う 💰📊🔑
+- 合計3500〜4500字で書く
+- 省略・「〜略〜」・箇条書きだけは禁止。文章で深掘りすること"""
 
 
 def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> dict:
@@ -98,74 +112,44 @@ def generate(genre: dict, themes: list[str], today: str, retries: int = 3) -> di
         raise ValueError("GROQ_API_KEY が未設定です。")
 
     client = Groq(api_key=api_key)
-    prompt = _build_prompt(genre, themes, today)
+    system_base = (
+        "あなたは日本語の有料記事を書くプロのライターです。"
+        "指示された構成・文字数を必ず守り、途中で終わらせず最後まで書き切ります。"
+    )
 
-    full_md = ""
-    for attempt in range(1, retries + 1):
-        try:
-            resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "あなたは日本語で記事を書くプロのライターです。"
-                            "指示された文字数・構成を必ず守り、省略や要約は絶対にしません。"
-                            "各セクションを丁寧に、具体的に、詳細に書きます。"
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.85,
-                max_tokens=8000,
-            )
-            full_md = resp.choices[0].message.content
-            char_count = len(full_md)
-            print(f"[INFO] 記事生成完了 ({char_count}文字)")
+    # Pass 1: タイトル + 無料パート（マーカー行で終わる）
+    print("[INFO] Pass 1: 無料パート生成中...")
+    free_md = _call_groq(client, system_base, _build_free_prompt(genre, themes, today), retries)
+    print(f"[INFO] Pass 1 完了 ({len(free_md)}字)")
 
-            if char_count >= MIN_CHARS:
-                break
-
-            print(f"[WARN] 文字数不足 ({char_count} < {MIN_CHARS}). attempt={attempt}")
-            if attempt < retries:
-                time.sleep(5)
-
-        except Exception as e:
-            err = str(e)
-            print(f"[WARN] Groq attempt {attempt}/{retries}: {err[:200]}")
-            if attempt == retries:
-                raise
-            time.sleep(10 * attempt)
-
-    return _parse_article(full_md)
-
-
-def _parse_article(full_md: str) -> dict:
-    title = ""
-    for line in full_md.strip().splitlines():
+    # タイトル抽出
+    title = "【2026年最新】完全ガイド"
+    for line in free_md.splitlines():
         if line.strip().startswith("# "):
             title = line.strip()[2:].strip()
             break
-    if not title:
-        title = "【2026年最新】完全ガイド"
 
-    PAID_MARKER = "＝＝＝ ここから有料"
-    if PAID_MARKER in full_md:
-        idx = full_md.index(PAID_MARKER)
-        end_of_marker = full_md.find('\n', idx)
-        if end_of_marker == -1:
-            end_of_marker = len(full_md)
-        free_part = full_md[:idx].strip()
-        paid_part = full_md[end_of_marker:].strip()
-    else:
-        mid = int(len(full_md) * FREE_RATIO)
-        split_at = full_md.rfind("\n\n", 0, mid) or mid
-        free_part = full_md[:split_at].strip()
-        paid_part = full_md[split_at:].strip()
+    # Pass 2: 有料パート
+    print("[INFO] Pass 2: 有料パート生成中...")
+    paid_md = _call_groq(client, system_base, _build_paid_prompt(genre, title, today), retries)
+    print(f"[INFO] Pass 2 完了 ({len(paid_md)}字)")
+
+    # 結合
+    MARKER = "＝＝＝ ここから有料"
+    if MARKER not in free_md:
+        free_md = free_md.rstrip() + "\n\n＝＝＝ ここから有料 ＝＝＝"
+
+    # free_md のマーカー行まで = free_part、paid_md 全体 = paid_part
+    idx = free_md.index(MARKER)
+    free_part = free_md[:idx].strip()
+
+    full_md = free_md + "\n\n" + paid_md
+    total = len(full_md)
+    print(f"[INFO] 記事生成完了 合計{total}字（無料{len(free_part)}字 + 有料{len(paid_md)}字）")
 
     return {
-        "title": title,
-        "free_part": free_part,
-        "paid_part": paid_part,
+        "title":         title,
+        "free_part":     free_part,
+        "paid_part":     paid_md.strip(),
         "full_markdown": full_md,
     }

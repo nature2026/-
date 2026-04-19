@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
 note.com 自動投稿: クッキー認証 + Playwright でブラウザを操作して記事を公開する。
-カバー画像は API(multipart/PUT) → UIファイル入力 の順で試行する。
 """
 
-import os
 import json
+import os
 import re
 import asyncio
 import tempfile
@@ -27,262 +26,133 @@ async def _login_with_cookies(context, cookies_json: str):
     cookies = json.loads(cookies_json)
     pw_cookies = []
     for c in cookies:
-        pc = {
-            "name":   c["name"],
-            "value":  c["value"],
-            "domain": c.get("domain", ".note.com"),
-            "path":   c.get("path", "/"),
-        }
+        pc = {"name": c["name"], "value": c["value"],
+              "domain": c.get("domain", ".note.com"), "path": c.get("path", "/")}
         if c.get("expirationDate"):
             pc["expires"] = int(c["expirationDate"])
-        if "sameSite" in c:
-            ss = c["sameSite"]
-            if ss in ("Strict", "Lax", "None"):
-                pc["sameSite"] = ss
+        ss = c.get("sameSite", "")
+        if ss in ("Strict", "Lax", "None"):
+            pc["sameSite"] = ss
         pw_cookies.append(pc)
     await context.add_cookies(pw_cookies)
     print(f"[INFO] クッキー {len(pw_cookies)} 件をセット")
 
 
-async def _upload_cover_via_context(context, page, note_key: str, image_url: str) -> bool:
-    """カバー画像アップロード: CSRF取得 → API(multipart/PUT) → UIファイル入力 の順で試行"""
+async def _upload_cover(context, page, note_key: str, image_url: str) -> bool:
+    """カバー画像アップロード: API → UI ファイル入力の順で試行"""
     try:
-        img_resp = req_lib.get(image_url, timeout=15)
-        img_resp.raise_for_status()
-        img_bytes = img_resp.content
+        img_bytes = req_lib.get(image_url, timeout=15).content
     except Exception as e:
         print(f"[WARN] カバー画像DL失敗: {e}")
         return False
 
-    # CSRFトークン取得
-    csrf_token = await page.evaluate("""
-        () => {
-            const m = document.querySelector('meta[name="csrf-token"]');
-            if (m) return m.getAttribute('content');
-            const c = document.cookie.split(';').find(c => c.trim().startsWith('_csrf'));
-            return c ? c.split('=')[1] : null;
-        }
-    """)
-    print(f"[INFO] CSRF token: {csrf_token and csrf_token[:20]}")
-
-    edit_referer = f"https://editor.note.com/notes/{note_key}/edit"
-    common_headers = {
-        "Referer": edit_referer,
-        "Origin": "https://editor.note.com",
+    # CSRF トークン取得
+    csrf = await page.evaluate(
+        "() => document.querySelector('meta[name=\"csrf-token\"]')?.getAttribute('content')"
+    )
+    headers = {
+        "Referer": f"https://editor.note.com/notes/{note_key}/edit",
+        "Origin":  "https://editor.note.com",
     }
-    if csrf_token:
-        common_headers["X-CSRF-Token"] = csrf_token
-        common_headers["X-Requested-With"] = "XMLHttpRequest"
+    if csrf:
+        headers["X-CSRF-Token"] = csrf
 
-    # 方式1: /api/v1/files にアップロード → eyecatch として設定
-    for upload_url in [
-        "https://note.com/api/v1/files",
-        "https://note.com/api/v2/files",
-    ]:
-        for field in ["file", "image"]:
-            try:
-                response = await context.request.fetch(
-                    upload_url,
-                    method="POST",
-                    headers=common_headers,
-                    multipart={
-                        field: {
-                            "name": "cover.jpg",
-                            "mimeType": "image/jpeg",
-                            "buffer": img_bytes,
-                        }
-                    },
-                )
-                body = await response.text()
-                print(f"[INFO] file upload ({field}) {response.status}: {body[:300]}")
-                if response.ok:
-                    try:
-                        data = json.loads(body)
-                        file_key = (
-                            data.get("data", {}).get("key") or
-                            data.get("key") or
-                            data.get("data", {}).get("id") or
-                            data.get("id")
-                        )
-                        if file_key:
-                            for patch_url in [
-                                f"https://note.com/api/v1/text_notes/{note_key}",
-                                f"https://note.com/api/v2/text_notes/{note_key}",
-                            ]:
-                                for body_data in [
-                                    json.dumps({"eyecatch_image_key": file_key}),
-                                    json.dumps({"eyecatch_image_object": {"key": file_key}}),
-                                ]:
-                                    pr = await context.request.fetch(
-                                        patch_url, method="PUT",
-                                        headers={**common_headers, "Content-Type": "application/json"},
-                                        data=body_data,
-                                    )
-                                    print(f"[INFO] eyecatch set {pr.status}: {(await pr.text())[:200]}")
-                                    if pr.ok:
-                                        return True
-                    except Exception as e:
-                        print(f"[WARN] eyecatch set via file key: {e}")
-                    return True
-            except Exception as e:
-                print(f"[WARN] file upload ({field}): {e}")
+    # API: /api/v1/files にアップロード後、eyecatch キーで紐付け
+    for field in ["file", "image"]:
+        try:
+            r = await context.request.fetch(
+                "https://note.com/api/v1/files", method="POST", headers=headers,
+                multipart={field: {"name": "cover.jpg", "mimeType": "image/jpeg", "buffer": img_bytes}},
+            )
+            body = await r.text()
+            print(f"[INFO] files API ({field}) {r.status}: {body[:200]}")
+            if r.ok:
+                data = json.loads(body)
+                key = data.get("data", {}).get("key") or data.get("key")
+                if key:
+                    pr = await context.request.fetch(
+                        f"https://note.com/api/v1/text_notes/{note_key}", method="PUT",
+                        headers={**headers, "Content-Type": "application/json"},
+                        data=json.dumps({"eyecatch_image_key": key}),
+                    )
+                    print(f"[INFO] eyecatch set {pr.status}: {(await pr.text())[:150]}")
+                    if pr.ok:
+                        return True
+                return True  # ファイルのみアップロード成功
+        except Exception as e:
+            print(f"[WARN] files API ({field}): {e}")
 
-    # 方式2: /eyecatch エンドポイントに直接 multipart
-    for url in [
-        f"https://note.com/api/v1/text_notes/{note_key}/eyecatch",
-        f"https://note.com/api/v2/text_notes/{note_key}/eyecatch",
-    ]:
-        for field in ["image", "file", "eyecatch"]:
-            try:
-                response = await context.request.fetch(
-                    url,
-                    method="POST",
-                    headers=common_headers,
-                    multipart={
-                        field: {
-                            "name": "cover.jpg",
-                            "mimeType": "image/jpeg",
-                            "buffer": img_bytes,
-                        }
-                    },
-                )
-                body = await response.text()
-                print(f"[INFO] cover multipart ({field}) {response.status}: {body[:200]}")
-                if response.ok:
-                    return True
-            except Exception as e:
-                print(f"[WARN] cover multipart ({field}): {e}")
-
-    # 方式2: PUT /api/v1/text_notes/{key} に eyecatch URLを直接指定
-    for put_url in [
-        f"https://note.com/api/v1/text_notes/{note_key}",
-        f"https://note.com/api/v2/text_notes/{note_key}",
-    ]:
-        for body_data in [
-            json.dumps({"eyecatch_image_object": {"url": image_url}}),
-            json.dumps({"eyecatch": image_url}),
-            json.dumps({"cover_image": image_url}),
-        ]:
-            try:
-                response = await context.request.fetch(
-                    put_url,
-                    method="PUT",
-                    headers={**common_headers, "Content-Type": "application/json"},
-                    data=body_data,
-                )
-                body = await response.text()
-                print(f"[INFO] cover PUT {response.status}: {body[:200]}")
-                if response.ok:
-                    return True
-            except Exception as e:
-                print(f"[WARN] cover PUT ({put_url}): {e}")
-
-    # 方式3: UIのfile input経由（エディタのカバー画像ボタン）
+    # UI: カバー画像ボタンを探してファイル選択
+    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(img_bytes)
-            tmp_path = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+            f.write(img_bytes)
+            tmp_path = f.name
 
-        # ページ上の全ボタンをログ出力（デバッグ用）
-        all_btns = await page.evaluate("""
-            () => [...document.querySelectorAll('button, [role="button"], label')].map(el => ({
-                tag: el.tagName,
-                text: el.textContent.trim().slice(0, 30),
-                aria: el.getAttribute('aria-label') || '',
-                testid: el.getAttribute('data-testid') || '',
-                cls: (el.className || '').toString().slice(0, 50),
+        # ページ上のカバー関連ボタンをログ出力（デバッグ用）
+        btns = await page.evaluate("""
+            () => [...document.querySelectorAll('button,[role="button"],label')].map(e => ({
+                text: e.textContent.trim().slice(0, 30),
+                aria: e.getAttribute('aria-label') || '',
+                testid: e.getAttribute('data-testid') || '',
             }))
         """)
-        cover_related = [b for b in all_btns if any(
-            kw in (b['text'] + b['aria'] + b['testid'] + b['cls']).lower()
-            for kw in ['cover', 'eyecatch', 'カバー', '画像', 'image', 'thumb']
+        cover_btns = [b for b in btns if any(
+            k in (b["text"] + b["aria"] + b["testid"]).lower()
+            for k in ["cover", "eyecatch", "カバー", "サムネ", "画像"]
         )]
-        print(f"[DEBUG] カバー関連UI要素: {cover_related}")
+        print(f"[DEBUG] カバー関連ボタン: {cover_btns}")
 
-        for btn_sel in [
+        for sel in [
             'button:has-text("カバー画像を設定")',
             'button:has-text("カバー画像")',
             'button:has-text("カバー")',
-            'button:has-text("サムネイル")',
             '[aria-label*="カバー"]',
-            '[aria-label*="cover"]',
-            '[aria-label*="eyecatch"]',
             '[data-testid*="eyecatch"]',
             '[data-testid*="cover"]',
-            '[data-testid*="thumbnail"]',
-            '.o-noteEditHeader__coverImage button',
-            '.p-note-editor__cover button',
-            'label[for*="cover"]',
-            'label[for*="eyecatch"]',
         ]:
             try:
-                btn = page.locator(btn_sel).first
-                await btn.wait_for(timeout=2000, state="visible")
-                async with page.expect_file_chooser(timeout=5000) as fc_info:
-                    await btn.click()
-                file_chooser = await fc_info.value
-                await file_chooser.set_files(tmp_path)
-                await page.wait_for_timeout(4000)
-                print(f"[INFO] cover UI upload via {btn_sel}")
-                return True
-            except Exception:
-                pass
-
-        # file input に直接 set_files（hidden input でも動く）
-        for input_sel in [
-            'input[type="file"][accept*="image"]',
-            'input[type="file"][name*="cover"]',
-            'input[type="file"][name*="eyecatch"]',
-            'input[type="file"]',
-        ]:
-            try:
-                el = page.locator(input_sel).first
-                count = await el.count()
-                if count == 0:
+                el = page.locator(sel).first
+                if await el.count() == 0:
                     continue
-                await el.set_input_files(tmp_path)
-                await page.wait_for_timeout(4000)
-                print(f"[INFO] cover direct file input: {input_sel}")
+                async with page.expect_file_chooser(timeout=4000) as fc_info:
+                    await el.click(timeout=3000)
+                fc = await fc_info.value
+                await fc.set_files(tmp_path)
+                await page.wait_for_timeout(3000)
+                print(f"[INFO] cover UI: {sel}")
                 return True
             except Exception:
                 pass
     except Exception as e:
-        print(f"[WARN] cover UI方式失敗: {e}")
+        print(f"[WARN] cover UI失敗: {e}")
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
     return False
 
 
 async def _fill_title(page, title: str):
     for sel in [
-        '[placeholder="記事タイトル"]',
-        '[data-placeholder="記事タイトル"]',
-        '[placeholder="タイトル"]',
-        '[data-placeholder="タイトル"]',
-        '.o-noteEditHeader__title',
-        'textarea[name="title"]',
-        'h1[contenteditable="true"]',
-        'div[contenteditable="true"][data-placeholder]',
+        '[placeholder="記事タイトル"]', '[data-placeholder="記事タイトル"]',
+        '[placeholder="タイトル"]',    '[data-placeholder="タイトル"]',
+        '.o-noteEditHeader__title',    'textarea[name="title"]',
+        'h1[contenteditable="true"]',  'div[contenteditable="true"][data-placeholder]',
     ]:
         try:
             el = page.locator(sel).first
             await el.wait_for(timeout=4000, state="visible")
             await el.click()
-            await page.wait_for_timeout(300)
+            await page.wait_for_timeout(200)
             await el.fill(title)
-            print(f"[INFO] タイトル入力: {title[:30]}...")
+            print(f"[INFO] タイトル入力: {title[:40]}...")
             return
         except Exception:
             pass
-
-    try:
-        await page.keyboard.press("Tab")
-        await page.wait_for_timeout(500)
-        await page.keyboard.type(title)
-        print(f"[INFO] タイトル入力(keyboard): {title[:30]}...")
-        return
-    except Exception:
-        pass
-
     raise RuntimeError("タイトル入力欄が見つかりませんでした")
 
 
@@ -294,23 +164,16 @@ def _strip_markdown(text: str) -> str:
     text = re.sub(r'^[-*]\s+', '・', text, flags=re.MULTILINE)
     text = re.sub(r'^\d+\.\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'^---+$', '', text, flags=re.MULTILINE)
-    text = re.sub(r'`{1,3}[^`]*`{1,3}', '', text)
+    text = re.sub(r'`{1,3}[^`\n]*`{1,3}', '', text)
     return text
 
 
 async def _fill_body(page, free_part: str, paid_part: str):
-    full_content = _strip_markdown(free_part) + "\n\n＝＝＝ ここから有料 ＝＝＝\n\n" + _strip_markdown(paid_part)
-
-    try:
-        plus_btn = page.locator('button[aria-label*="追加"], button.p-note-editor__add-button, button:has-text("+")').first
-        await plus_btn.wait_for(timeout=3000, state="visible")
-        await plus_btn.click()
-        await page.wait_for_timeout(500)
-        await page.keyboard.press("Escape")
-        await page.wait_for_timeout(300)
-    except Exception:
-        pass
-
+    content = (
+        _strip_markdown(free_part)
+        + "\n\n＝＝＝ ここから有料 ＝＝＝\n\n"
+        + _strip_markdown(paid_part)
+    )
     for sel in ['.ProseMirror', '[contenteditable="true"]', '.o-noteEditContents__body']:
         try:
             els = page.locator(sel)
@@ -318,18 +181,14 @@ async def _fill_body(page, free_part: str, paid_part: str):
             el = els.nth(1) if count > 1 else els.first
             await el.wait_for(timeout=5000, state="visible")
             await el.click()
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(300)
             await page.evaluate(
                 """(text) => {
                     const els = document.querySelectorAll('.ProseMirror, [contenteditable="true"]');
                     const el = els.length > 1 ? els[1] : els[0];
-                    if (el) {
-                        el.focus();
-                        document.execCommand('selectAll', false, null);
-                        document.execCommand('insertText', false, text);
-                    }
+                    if (el) { el.focus(); document.execCommand('selectAll'); document.execCommand('insertText', false, text); }
                 }""",
-                full_content,
+                content,
             )
             await _save_ss(page, "05_body_filled")
             print("[INFO] 本文入力完了")
@@ -342,13 +201,9 @@ async def _fill_body(page, free_part: str, paid_part: str):
 async def _publish(page, price: int):
     await _save_ss(page, "06_before_publish")
 
-    for sel in [
-        'button:has-text("公開に進む")',
-        'button:has-text("公開設定")',
-        'button:has-text("投稿設定")',
-        '[data-testid="publish-button"]',
-        'button.o-publishButton',
-    ]:
+    # 「公開に進む」ボタン
+    for sel in ['button:has-text("公開に進む")', 'button:has-text("公開設定")',
+                '[data-testid="publish-button"]', 'button.o-publishButton']:
         try:
             btn = page.locator(sel).first
             await btn.wait_for(timeout=5000, state="visible")
@@ -362,7 +217,7 @@ async def _publish(page, price: int):
     await _save_ss(page, "07_publish_modal")
     await page.wait_for_timeout(2000)
 
-    # 記事タイプタブをクリック
+    # 「記事タイプ」タブ
     for sel in ['button:has-text("記事タイプ")', ':text-is("記事タイプ")']:
         try:
             el = page.locator(sel).first
@@ -374,44 +229,50 @@ async def _publish(page, price: int):
         except Exception:
             pass
 
-    # 有料ラジオをReact対応JSで選択
+    # 有料ラジオを JS で選択
     paid_result = await page.evaluate("""
         () => {
             const radio = document.getElementById('paid') ||
                           document.querySelector('input[name="is_paid"][value="paid"]');
             if (!radio) return 'not found';
             radio.checked = true;
-            ['click', 'change', 'input'].forEach(evt =>
-                radio.dispatchEvent(new Event(evt, {bubbles: true, cancelable: true}))
+            ['click','change','input'].forEach(e =>
+                radio.dispatchEvent(new Event(e, {bubbles: true}))
             );
-            return 'checked: ' + radio.checked;
+            return 'ok';
         }
     """)
     print(f"[INFO] 有料ラジオ: {paid_result}")
-    await page.wait_for_timeout(1500)
 
-    # 価格をReact native setter + execCommand で設定（overflow内でも確実に動作）
+    # 価格 input が出現するまで待つ（最大 8 秒）
+    try:
+        await page.wait_for_selector(
+            'input#price, input[placeholder="300"]', timeout=8000
+        )
+    except Exception:
+        print("[WARN] 価格input 待機タイムアウト")
+
+    # 価格を React native setter + execCommand で設定
     price_result = await page.evaluate(f"""
         () => {{
             const input = document.getElementById('price') ||
                           document.querySelector('input[placeholder="300"]');
             if (!input) return 'not found';
-            input.focus();
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, '{price}');
-            const setter = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value').set;
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
             setter.call(input, '{price}');
-            ['focus', 'input', 'change', 'blur'].forEach(evt =>
-                input.dispatchEvent(new Event(evt, {{bubbles: true, cancelable: true}}))
+            input.focus();
+            document.execCommand('selectAll');
+            document.execCommand('insertText', false, '{price}');
+            ['input','change','blur'].forEach(e =>
+                input.dispatchEvent(new Event(e, {{bubbles: true}}))
             );
-            return 'value: ' + input.value;
+            return 'value=' + input.value;
         }}
     """)
     print(f"[INFO] 価格設定: {price_result}")
     await page.wait_for_timeout(1000)
 
-    # ドロワー内全スクロール可能コンテナを最下部へ（投稿ボタンを表示）
+    # overflow コンテナを最下部にスクロールして「投稿する」を表示
     scrolled = await page.evaluate("""
         () => {
             const els = [...document.querySelectorAll('*')].filter(el => {
@@ -424,43 +285,34 @@ async def _publish(page, price: int):
             return els.length;
         }
     """)
-    print(f"[INFO] スクロール済みコンテナ: {scrolled}")
+    print(f"[INFO] スクロール: {scrolled}コンテナ")
     await page.wait_for_timeout(1500)
     await _save_ss(page, "07b_scrolled")
 
     # 投稿ボタンクリック
-    publish_clicked = False
     for sel in [
         'button:has-text("投稿する")', 'button:has-text("公開する")',
-        '[role="button"]:has-text("投稿する")', '[role="button"]:has-text("公開する")',
-        'a:has-text("投稿する")', 'a:has-text("公開する")',
-        ':text("投稿する")', ':text("公開する")',
-        '[type="submit"]',
+        '[role="button"]:has-text("投稿する")', ':text("投稿する")', ':text("公開する")',
     ]:
         try:
             el = page.locator(sel).first
             await el.scroll_into_view_if_needed(timeout=2000)
             await el.click(timeout=2000, force=True)
             print(f"[INFO] 投稿クリック: {sel}")
-            publish_clicked = True
             break
         except Exception:
             pass
-
-    if not publish_clicked:
+    else:
+        # フォールバック: TreeWalker で TEXT ノードを検索してクリック
         r = await page.evaluate("""
             () => {
-                const keywords = ['投稿する', '公開する'];
-                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+                const kws = ['投稿する', '公開する'];
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
                 let node;
                 while (node = walker.nextNode()) {
-                    const text = node.textContent.trim();
-                    if (keywords.includes(text)) {
+                    if (kws.includes(node.textContent.trim())) {
                         const p = node.parentElement;
-                        if (p) {
-                            p.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-                            return text + ' [' + p.tagName + ']';
-                        }
+                        if (p) { p.dispatchEvent(new MouseEvent('click', {bubbles: true})); return p.tagName; }
                     }
                 }
                 return null;
@@ -511,7 +363,6 @@ async def post(article: dict, price: int) -> str:
 
             await _fill_title(page, article["title"])
             await page.wait_for_timeout(500)
-
             await _fill_body(page, article["free_part"], article["paid_part"])
 
             # 自動保存を待ってノートIDを取得
@@ -523,13 +374,8 @@ async def post(article: dict, price: int) -> str:
             # カバー画像アップロード
             cover = article.get("cover_image")
             if cover and cover.get("url") and note_key and note_key != "new":
-                ok = await _upload_cover_via_context(context, page, note_key, cover["url"])
-                if ok:
-                    print("[INFO] カバー画像アップロード完了")
-                else:
-                    print("[WARN] カバー画像アップロード失敗")
-            else:
-                print("[WARN] カバー画像スキップ（URL未取得またはURLなし）")
+                ok = await _upload_cover(context, page, note_key, cover["url"])
+                print("[INFO] カバー画像: " + ("完了" if ok else "失敗"))
 
             url = await _publish(page, price)
             return url or page.url
