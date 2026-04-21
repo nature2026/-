@@ -1,29 +1,29 @@
 {
   "genres": [
     {
-      "id": "money",
-      "name": "稼ぐ系",
-      "persona": "副業で月100万円を達成した元サラリーマン",
-      "keywords": ["副業", "在宅ワーク", "SNS収入", "ネット副業", "フリーランス"],
+      "id": "claude_tips",
+      "name": "Claude活用術",
+      "persona": "Claude AIを日常的に使いこなしてコードや文章作成を圧倒的に効率化しているエンジニア・クリエイター",
+      "keywords": ["Claude", "AI活用", "プロンプト", "生成AI", "LLM"],
       "rss_feeds": [
-        "https://jp.techcrunch.com/feed/",
-        "https://www.businessinsider.jp/feed/index.xml",
-        "https://news.yahoo.co.jp/rss/topics/business.xml"
+        "https://zenn.dev/feed",
+        "https://qiita.com/popular-items/feed.atom",
+        "https://techcrunch.com/feed/"
       ],
-      "tags": ["副業", "稼ぐ", "在宅ワーク", "フリーランス", "SNS収入"],
+      "tags": ["Claude", "AI活用", "生成AI", "プロンプト", "効率化"],
       "price": 980
     },
     {
-      "id": "investment",
-      "name": "投資・資産形成",
-      "persona": "資産3000万円を築いた個人投資家",
-      "keywords": ["NISA", "株式投資", "投資信託", "資産形成", "仮想通貨"],
+      "id": "ai_dev",
+      "name": "AI開発実践",
+      "persona": "Claude APIを使って自動化ツール・AIエージェントを個人開発し続けているエンジニア",
+      "keywords": ["Claude API", "AI開発", "プロンプトエンジニアリング", "AIエージェント", "自動化"],
       "rss_feeds": [
-        "https://news.yahoo.co.jp/rss/topics/business.xml",
-        "https://jp.reuters.com/tools/rss",
-        "https://www.nikkei.com/rss/rss.do?ser=market"
+        "https://zenn.dev/feed",
+        "https://qiita.com/popular-items/feed.atom",
+        "https://techcrunch.com/feed/"
       ],
-      "tags": ["投資", "NISA", "資産形成", "株式投資", "お金"],
+      "tags": ["AI開発", "Claude API", "プロンプトエンジニアリング", "AIエージェント", "自動化"],
       "price": 1480
     }
   ],
