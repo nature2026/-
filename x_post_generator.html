@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>X投稿文ジェネレーター</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;background:#f5f5f3;color:#1a1a1a;font-size:15px;line-height:1.6}
+.wrap{max-width:760px;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+.header{margin-bottom:2rem}
+.header h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.header p{font-size:13px;color:#888}
+.card{background:#fff;border:1px solid #e8e8e6;border-radius:12px;padding:1.25rem 1.5rem;margin-bottom:1rem}
+.card-label{font-size:13px;font-weight:700;color:#555;margin-bottom:8px}
+input[type=text],input[type=password]{width:100%;padding:10px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff;color:#1a1a1a;outline:none;font-family:inherit;transition:border-color .15s}
+input[type=text]:focus,input[type=password]:focus{border-color:#555;box-shadow:0 0 0 3px rgba(0,0,0,.06)}
+.helper{font-size:12px;color:#aaa;margin-top:6px}
+.settings-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.setting-item label{font-size:13px;font-weight:600;color:#555;display:block;margin-bottom:6px}
+select{width:100%;padding:9px 12px;font-size:13px;border:1.5px solid #ddd;border-radius:8px;background:#fff;color:#1a1a1a;outline:none;font-family:inherit;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;transition:border-color .15s}
+select:focus{border-color:#555}
+.hashtag-label{font-size:13px;font-weight:600;color:#555;margin-bottom:6px;display:block;margin-top:14px}
+.hashtag-helper{font-size:11px;color:#aaa;margin-top:5px}
+.gen-btn{width:100%;padding:16px;font-size:16px;font-weight:700;background:#1a1a1a;color:#fff;border:none;border-radius:10px;cursor:pointer;margin-top:6px;transition:opacity .15s;letter-spacing:.03em;display:flex;align-items:center;justify-content:center;gap:8px}
+.gen-btn:hover:not(:disabled){opacity:.82}
+.gen-btn:disabled{opacity:.5;cursor:not-allowed}
+.spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.gen-btn.loading .spinner{display:block}
+.gen-btn.loading .btn-text::after{content:''}
+.error-box{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:1rem 1.25rem;margin-top:1rem;display:none}
+.error-box .error-title{color:#dc2626;font-size:14px;font-weight:700;margin-bottom:4px}
+.error-box .error-msg{color:#b91c1c;font-size:13px;line-height:1.6}
+.error-box .error-hint{margin-top:8px;font-size:12px;color:#ef4444;background:#fff5f5;border-radius:6px;padding:8px 10px;border-left:3px solid #fca5a5}
+.result-area{margin-top:1.25rem;display:none}
+.result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.result-header h2{font-size:15px;font-weight:700}
+.result-header span{font-size:12px;color:#aaa}
+.post-card{background:#fff;border:1px solid #e8e8e6;border-radius:10px;padding:1rem 1.25rem;margin-bottom:10px}
+.post-meta{font-size:11px;color:#aaa;font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
+.post-text{font-size:14px;line-height:1.7;color:#1a1a1a;white-space:pre-wrap;word-break:break-word}
+.post-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+.char-count{font-size:12px}
+.char-ok{color:#22c55e}
+.char-warn{color:#f59e0b}
+.char-over{color:#ef4444}
+.copy-btn{font-size:12px;padding:5px 12px;border:1.5px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;color:#555;font-family:inherit;transition:all .15s}
+.copy-btn:hover{border-color:#1a1a1a;color:#1a1a1a}
+.copy-btn.copied{background:#f0fdf4;border-color:#86efac;color:#16a34a}
+.copy-all-btn{font-size:13px;padding:8px 16px;border:1.5px solid #1a1a1a;border-radius:7px;background:#fff;cursor:pointer;color:#1a1a1a;font-family:inherit;font-weight:600;transition:all .15s}
+.copy-all-btn:hover{background:#1a1a1a;color:#fff}
+@media(max-width:580px){.settings-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>X投稿文ジェネレーター</h1>
+    <p>今週のAIニュースをもとに、初心者向けX投稿文を自動生成します</p>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Claude APIキー</div>
+    <input type="password" id="apiKey" placeholder="sk-ant-api03-..." autocomplete="off">
+    <p class="helper">キーはブラウザ内のみで使用され、外部には送信されません</p>
+  </div>
+
+  <div class="card">
+    <div class="settings-grid">
+      <div class="setting-item">
+        <label>投稿パターン数</label>
+        <select id="postCount">
+          <option value="1">1パターン</option>
+          <option value="3" selected>3パターン（推奨）</option>
+          <option value="5">5パターン</option>
+          <option value="10">10パターン</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label>ネタ数</label>
+        <select id="topicCount">
+          <option value="3">3ネタ</option>
+          <option value="5" selected>5ネタ（推奨）</option>
+          <option value="7">7ネタ</option>
+          <option value="10">10ネタ</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label>対象読者</label>
+        <select id="audience">
+          <option value="AI初心者" selected>AI初心者</option>
+          <option value="AI中級者">AI中級者</option>
+          <option value="ビジネスパーソン">ビジネスパーソン</option>
+          <option value="エンジニア">エンジニア</option>
+        </select>
+      </div>
+    </div>
+    <label class="hashtag-label">ハッシュタグ（スペース区切りで追加・削除できます）</label>
+    <input type="text" id="hashtags" value="#AI #ChatGPT #生成AI #AIツール">
+    <p class="hashtag-helper">コピー時に投稿文の末尾へ自動追加されます（140字カウントには含みません）</p>
+  </div>
+
+  <button class="gen-btn" id="genBtn" onclick="generate()">
+    <div class="spinner" id="spinner"></div>
+    <span class="btn-text" id="btnText">今週のAIニュースで投稿文を生成する</span>
+  </button>
+
+  <div class="error-box" id="errorBox">
+    <div class="error-title" id="errorTitle">エラー</div>
+    <div class="error-msg" id="errorMsg"></div>
+    <div class="error-hint" id="errorHint" style="display:none"></div>
+  </div>
+
+  <div class="result-area" id="resultArea">
+    <div class="result-header">
+      <h2 id="resultTitle">生成された投稿文</h2>
+      <button class="copy-all-btn" onclick="copyAll()">全てコピー</button>
+    </div>
+    <div id="postList"></div>
+  </div>
+</div>
+
+<script>
+async function generate() {
+  var apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) { showError('APIキーを入力してください', '', ''); return; }
+
+  var postCount = parseInt(document.getElementById('postCount').value);
+  var topicCount = parseInt(document.getElementById('topicCount').value);
+  var audience = document.getElementById('audience').value;
+
+  setLoading(true);
+  hideError();
+  document.getElementById('resultArea').style.display = 'none';
+
+  var prompt = '今週（2026年4月下旬）のAIに関する最新ニュース・トピックを' + topicCount + 'つ取り上げて、'
+    + audience + '向けのX（Twitter）投稿文を' + postCount + 'パターン生成してください。\n\n'
+    + '【要件】\n'
+    + '- 各投稿文は140字以内（日本語）\n'
+    + '- 読みやすく、シンプルな言葉を使う\n'
+    + '- 興味を引く書き出しにする\n'
+    + '- ハッシュタグは含めない（別途追加する）\n'
+    + '- 絵文字は1〜2個まで\n\n'
+    + '【出力形式】\n'
+    + 'パターンごとに以下の形式で出力してください：\n'
+    + '---PATTERN---\n'
+    + '[投稿文本文のみ]\n'
+    + '---END---\n\n'
+    + '余計な説明や前置きは不要です。';
+
+  try {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    var data = await res.json();
+
+    if (!res.ok) {
+      var errMsg = (data.error && data.error.message) ? data.error.message : JSON.stringify(data);
+      var hint = '';
+      if (res.status === 401) {
+        hint = 'APIキーが無効です。Anthropic Consoleで正しいキーを確認してください。';
+      } else if (res.status === 429 || (errMsg && errMsg.toLowerCase().includes('credit'))) {
+        hint = 'APIクレジットが不足しています。Anthropic Console（console.anthropic.com）の「Plans & Billing」でクレジットを追加してください。';
+      } else if (res.status === 529) {
+        hint = 'APIが混雑しています。しばらく待ってから再試行してください。';
+      }
+      showError('エラー: ' + errMsg, hint, res.status);
+      return;
+    }
+
+    var text = data.content && data.content[0] ? data.content[0].text : '';
+    var patterns = parsePatterns(text, postCount);
+    renderResults(patterns);
+
+  } catch (e) {
+    showError('通信エラー: ' + e.message, 'ネットワーク接続を確認してください。', '');
+  } finally {
+    setLoading(false);
+  }
+}
+
+function parsePatterns(text, expected) {
+  var patterns = [];
+  var regex = /---PATTERN---([\s\S]*?)---END---/g;
+  var match;
+  while ((match = regex.exec(text)) !== null) {
+    var p = match[1].trim();
+    if (p) patterns.push(p);
+  }
+  if (patterns.length === 0) {
+    var lines = text.split(/\n{2,}/);
+    for (var i = 0; i < lines.length && patterns.length < expected; i++) {
+      var l = lines[i].trim();
+      if (l.length > 10) patterns.push(l);
+    }
+  }
+  if (patterns.length === 0 && text.trim().length > 0) {
+    patterns.push(text.trim());
+  }
+  return patterns;
+}
+
+function renderResults(patterns) {
+  var list = document.getElementById('postList');
+  var hashtags = document.getElementById('hashtags').value.trim();
+  list.innerHTML = '';
+  patterns.forEach(function(p, i) {
+    var charLen = countChars(p);
+    var colorClass = charLen <= 100 ? 'char-ok' : charLen <= 130 ? 'char-warn' : 'char-over';
+    var card = document.createElement('div');
+    card.className = 'post-card';
+    card.innerHTML = '<div class="post-meta">パターン ' + (i + 1) + '</div>'
+      + '<div class="post-text">' + escHtml(p) + '</div>'
+      + '<div class="post-footer">'
+      + '<span class="char-count ' + colorClass + '">' + charLen + '字</span>'
+      + '<button class="copy-btn" onclick="copyPost(this, \'' + escAttr(p) + '\', \'' + escAttr(hashtags) + '\')">コピー</button>'
+      + '</div>';
+    list.appendChild(card);
+  });
+  document.getElementById('resultTitle').textContent = '生成された投稿文（' + patterns.length + 'パターン）';
+  document.getElementById('resultArea').style.display = 'block';
+}
+
+function countChars(str) { return str.replace(/\n/g, '').length; }
+
+function copyPost(btn, text, hashtags) {
+  var full = text + (hashtags ? '\n\n' + hashtags : '');
+  navigator.clipboard.writeText(full).then(function() {
+    btn.textContent = 'コピー済み';
+    btn.className = 'copy-btn copied';
+    setTimeout(function() { btn.textContent = 'コピー'; btn.className = 'copy-btn'; }, 2000);
+  });
+}
+
+function copyAll() {
+  var hashtags = document.getElementById('hashtags').value.trim();
+  var cards = document.querySelectorAll('.post-text');
+  var all = Array.prototype.map.call(cards, function(el, i) {
+    return '【パターン' + (i + 1) + '】\n' + el.textContent + (hashtags ? '\n\n' + hashtags : '');
+  }).join('\n\n' + '─'.repeat(20) + '\n\n');
+  navigator.clipboard.writeText(all).then(function() { alert('全パターンをコピーしました！'); });
+}
+
+function setLoading(on) {
+  var btn = document.getElementById('genBtn');
+  var spinner = document.getElementById('spinner');
+  var txt = document.getElementById('btnText');
+  btn.disabled = on;
+  if (on) {
+    btn.classList.add('loading');
+    spinner.style.display = 'block';
+    txt.textContent = '生成中...';
+  } else {
+    btn.classList.remove('loading');
+    spinner.style.display = 'none';
+    txt.textContent = '今週のAIニュースで投稿文を生成する';
+  }
+}
+
+function showError(msg, hint) {
+  var box = document.getElementById('errorBox');
+  document.getElementById('errorMsg').textContent = msg;
+  var hintEl = document.getElementById('errorHint');
+  if (hint) {
+    hintEl.textContent = hint;
+    hintEl.style.display = 'block';
+  } else {
+    hintEl.style.display = 'none';
+  }
+  box.style.display = 'block';
+}
+
+function hideError() { document.getElementById('errorBox').style.display = 'none'; }
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+  return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n');
+}
+</script>
+</body>
+</html>
